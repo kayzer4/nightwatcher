@@ -1,0 +1,145 @@
+{
+  "gridSize": 16,
+  "configs": {
+    "Models/building-a": {
+      "name": "building-a",
+      "pack": "Models",
+      "modelType": "building",
+      "rotation": 0,
+      "frontDir": "front",
+      "height": "medium",
+      "actualHeight": 2,
+      "actualWidth": 1,
+      "actualDepth": 1,
+      "foundation": "tile-low",
+      "foundationScale": 1,
+      "foundationOffsetY": -0.01,
+      "gridW": 1,
+      "gridD": 1,
+      "neighborModelsLeft": [],
+      "neighborModelsRight": [],
+      "neighborModelsFront": [
+        {
+          "model": "road-straight",
+          "rotation": 0,
+          "allowedSides": [
+            "right",
+            "front",
+            "back",
+            "left"
+          ]
+        },
+        {
+          "model": "road-bend",
+          "rotation": 0,
+          "allowedSides": [
+            "right",
+            "front",
+            "back",
+            "left"
+          ]
+        },
+        {
+          "model": "road-bend-sidewalk",
+          "rotation": 0,
+          "allowedSides": [
+            "left",
+            "right",
+            "front",
+            "back"
+          ]
+        },
+        {
+          "model": "road-bend-square",
+          "rotation": 0,
+          "allowedSides": [
+            "left",
+            "right",
+            "front",
+            "back"
+          ]
+        }
+      ],
+      "neighborModelsBack": [],
+      "roadConnectLeft": false,
+      "roadConnectRight": false,
+      "roadConnectFront": false,
+      "roadConnectBack": false,
+      "roadType": "none",
+      "isTerminal": false,
+      "lightRadius": 3,
+      "lightColor": "#fffbe6",
+      "lightOnByDefault": true,
+      "scale": 0.65,
+      "offsetY": 0,
+      "tags": [],
+      "notes": ""
+    },
+    "Models/building-b": {
+      "name": "building-b",
+      "pack": "Models",
+      "modelType": "building",
+      "rotation": 0,
+      "frontDir": "front",
+      "height": "medium",
+      "actualHeight": 2,
+      "actualWidth": 1,
+      "actualDepth": 1,
+      "foundation": "tile-low",
+      "foundationScale": 1,
+      "foundationOffsetY": -0.01,
+      "gridW": 1,
+      "gridD": 1,
+      "neighborModelsLeft": [],
+      "neighborModelsRight": [],
+      "neighborModelsFront": [],
+      "neighborModelsBack": [],
+      "roadConnectLeft": false,
+      "roadConnectRight": false,
+      "roadConnectFront": false,
+      "roadConnectBack": false,
+      "roadType": "none",
+      "isTerminal": false,
+      "lightRadius": 3,
+      "lightColor": "#fffbe6",
+      "lightOnByDefault": true,
+      "scale": 0.9,
+      "offsetY": 0,
+      "tags": [],
+      "notes": ""
+    },
+    "Models/building-c": {
+      "name": "building-c",
+      "pack": "Models",
+      "modelType": "building",
+      "rotation": 0,
+      "frontDir": "front",
+      "height": "medium",
+      "actualHeight": 2,
+      "actualWidth": 1,
+      "actualDepth": 1,
+      "foundation": "tile-low",
+      "foundationScale": 1,
+      "foundationOffsetY": -0.01,
+      "gridW": 1,
+      "gridD": 1,
+      "neighborModelsLeft": [],
+      "neighborModelsRight": [],
+      "neighborModelsFront": [],
+      "neighborModelsBack": [],
+      "roadConnectLeft": false,
+      "roadConnectRight": false,
+      "roadConnectFront": false,
+      "roadConnectBack": false,
+      "roadType": "none",
+      "isTerminal": false,
+      "lightRadius": 3,
+      "lightColor": "#fffbe6",
+      "lightOnByDefault": true,
+      "scale": 0.9,
+      "offsetY": 0,
+      "tags": [],
+      "notes": ""
+    }
+  }
+}
