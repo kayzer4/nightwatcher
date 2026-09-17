@@ -1,81 +1,66 @@
-import { Entity } from "./Entity";
-import { Building } from "./Building";
-import { StreetLight } from "./StreetLight";
-
-export type Density = "dense" | "mixed" | "sparse";
-
 export interface CityConfig {
-  gridSize: number;
+  gridSizeX: number;
+  gridSizeZ: number;
   cellSize: number;
-  density: Density;
-}
-
-export interface NeighborEntry {
-  model: string;
-  rotation: number;
-  allowedSides: string[];
 }
 
 export interface ModelConfig {
-  name: string; pack: string; modelType: string;
-  rotation: number; frontDir: "left"|"right"|"front"|"back"|"none";
-  height: "low"|"medium"|"tall"|"skyscraper";
-  actualHeight: number; actualWidth: number; actualDepth: number;
-  foundation: string; foundationScale: number; foundationOffsetY: number;
-  gridW: number; gridD: number;
-  neighborModelsLeft: NeighborEntry[]; neighborModelsRight: NeighborEntry[];
-  neighborModelsFront: NeighborEntry[]; neighborModelsBack: NeighborEntry[];
-  roadConnectLeft: boolean; roadConnectRight: boolean; roadConnectFront: boolean; roadConnectBack: boolean;
-  roadType: string; isTerminal: boolean;
-  lightRadius: number; lightColor: string; lightOnByDefault: boolean;
-  scale: number; offsetY: number; tags: string[]; notes: string;
+  name: string;
+  pack: string;
+  modelType: string;
+  rotation: number;
+  scale: number;
+  offsetY: number;
+  gridW: number;
+  gridD: number;
+  roadConnectLeft: boolean;
+  roadConnectRight: boolean;
+  roadConnectFront: boolean;
+  roadConnectBack: boolean;
+  roadType: "straight" | "bend" | "intersection" | "crossroad" | "end" | "none";
+  isTerminal: boolean;
+  tags: string[];
+  frontDir: "left" | "right" | "front" | "back" | "none";
+  height: "low" | "medium" | "high";
+  actualHeight: number;
+  actualWidth: number;
+  actualDepth: number;
+  foundation: "none" | "low" | "high";
+  foundationScale: number;
+  foundationOffsetY: number;
+  lightRadius: number;
+  lightColor: string;
+  lightOnByDefault: boolean;
 }
 
 export interface CityObject {
   model: string;
-  pack: "roads" | "Models";
+  pack: string;
   position: [number, number, number];
   rotation: number;
+  rotationX?: number;
   gridW: number;
   gridD: number;
   scale: number;
-  foundation?: { model: string; scale: number; offsetY: number };
+  connRight: boolean;
+  connBack: boolean;
+  connLeft: boolean;
+  connFront: boolean;
+  frontDir?: "left" | "right" | "front" | "back" | "none";
 }
 
-// Connection directions: [right, down, left, up]
 type ConnDir = [boolean, boolean, boolean, boolean];
+type CellType = "road" | "building" | "empty";
 
-const ROAD_MODELS: Record<string, { conns: ConnDir[] }> = {
-  "road-straight": { conns: [[true, false, true, false], [false, true, false, true]] },
-  "road-bend": { conns: [[true, true, false, false], [false, true, true, false], [false, false, true, true], [true, false, false, true]] },
-  "road-crossroad": { conns: [[true, true, true, true]] },
-  "road-intersection": { conns: [[true, true, true, false], [false, true, true, true], [true, false, true, true], [true, true, false, true]] },
-  "road-end": { conns: [[true, false, false, false], [false, true, false, false], [false, false, true, false], [false, false, false, true]] },
-  "road-square": { conns: [[true, true, true, true]] },
-};
-
-const BUILDING_MODELS = [
-  "building-a", "building-b", "building-c", "building-d", "building-e",
-  "building-f", "building-g", "building-h", "building-i", "building-j",
-  "building-k", "building-l", "building-m", "building-n",
-  "building-skyscraper-a", "building-skyscraper-b", "building-skyscraper-c",
-  "building-skyscraper-d", "building-skyscraper-e",
-];
-
-function pick<T>(arr: T[]): T {
-  return arr[Math.floor(Math.random() * arr.length)];
+interface Block {
+  x: number;
+  z: number;
+  w: number;
+  h: number;
 }
 
 function randInt(min: number, max: number): number {
   return Math.floor(Math.random() * (max - min + 1)) + min;
-}
-
-function getDensity(d: Density): [number, number] {
-  switch (d) {
-    case "dense": return [3, 6];
-    case "mixed": return [1, 4];
-    case "sparse": return [0, 2];
-  }
 }
 
 function rotateConn(conn: ConnDir, steps: number): ConnDir {
@@ -91,290 +76,303 @@ function connMatches(a: ConnDir, b: ConnDir): boolean {
   return a[0] === b[0] && a[1] === b[1] && a[2] === b[2] && a[3] === b[3];
 }
 
-function findRoadModel(need: ConnDir): { model: string; rotation: number } | null {
-  for (const [name, def] of Object.entries(ROAD_MODELS)) {
-    for (const baseConn of def.conns) {
-      for (let rot = 0; rot < 4; rot++) {
-        const rotated = rotateConn(baseConn, rot);
-        if (connMatches(rotated, need)) {
-          return { model: name, rotation: rot * Math.PI / 2 };
-        }
+function getModelConns(cfg: ModelConfig): ConnDir {
+  return [cfg.roadConnectRight, cfg.roadConnectBack, cfg.roadConnectLeft, cfg.roadConnectFront];
+}
+
+function findRoadModel(need: ConnDir, modelConfigs: Record<string, ModelConfig>): { model: string; rotation: number; scale: number; rotSteps: number } | null {
+  const candidates: { model: string; rotation: number; scale: number; rotSteps: number }[] = [];
+
+  for (const [, cfg] of Object.entries(modelConfigs)) {
+    if (cfg.modelType !== "road" || cfg.roadType === "none") continue;
+    const baseConns = getModelConns(cfg);
+
+    for (let rot = 0; rot < 4; rot++) {
+      const rotated = rotateConn(baseConns, rot);
+      if (connMatches(rotated, need)) {
+        candidates.push({
+          model: cfg.name,
+          rotation: -rot * Math.PI / 2 + (cfg.rotation || 0),
+          scale: cfg.scale || 1,
+          rotSteps: rot,
+        });
       }
     }
   }
-  return null;
+
+  if (candidates.length === 0) return null;
+  return candidates[Math.floor(Math.random() * candidates.length)];
+}
+
+function getBuildingCandidates(modelConfigs: Record<string, ModelConfig>): { model: string; pack: string; scale: number; gridW: number; gridD: number }[] {
+  const candidates: { model: string; pack: string; scale: number; gridW: number; gridD: number }[] = [];
+
+  for (const [, cfg] of Object.entries(modelConfigs)) {
+    if (cfg.modelType === "road" || cfg.modelType === "tile") continue;
+    if (cfg.tags.includes("detail")) continue;
+    candidates.push({
+      model: cfg.name,
+      pack: cfg.pack,
+      scale: cfg.scale || 1,
+      gridW: Math.ceil(cfg.actualWidth || 1),
+      gridD: Math.ceil(cfg.actualDepth || 1),
+    });
+  }
+
+  candidates.sort((a, b) => (b.gridW * b.gridD) - (a.gridW * a.gridD));
+  return candidates;
+}
+
+function hasRoad(x: number, z: number, map: CellType[][], sizeX: number, sizeZ: number): boolean {
+  if (x < 0 || x >= sizeX || z < 0 || z >= sizeZ) return false;
+  return map[x][z] === "road";
 }
 
 export const DEFAULT_CONFIG: CityConfig = {
-  gridSize: 16,
+  gridSizeX: 16,
+  gridSizeZ: 16,
   cellSize: 1,
-  density: "mixed",
 };
 
 export class CityGenerator {
   config: CityConfig;
   modelConfigs: Record<string, ModelConfig>;
   objects: CityObject[] = [];
-  buildings: Building[] = [];
-  streetLights: StreetLight[] = [];
-  private map: ("road" | "empty")[][] = [];
+  private map: CellType[][] = [];
 
   constructor(config?: Partial<CityConfig>, modelConfigs?: Record<string, ModelConfig>) {
     this.config = { ...DEFAULT_CONFIG, ...config };
     this.modelConfigs = modelConfigs || {};
   }
 
-  private getModelConfig(modelName: string, pack: string): ModelConfig | undefined {
-    const key = `${pack}/${modelName}`;
-    return this.modelConfigs[key];
-  }
-
   generate(): CityObject[] {
-    const { gridSize, cellSize, density } = this.config;
-    const half = (gridSize * cellSize) / 2;
+    const { gridSizeX, gridSizeZ, cellSize } = this.config;
+    const halfX = (gridSizeX * cellSize) / 2;
+    const halfZ = (gridSizeZ * cellSize) / 2;
+
+    for (let attempt = 0; attempt < 20; attempt++) {
+      this.objects = [];
+      this.map = Array.from({ length: gridSizeX }, () =>
+        Array.from({ length: gridSizeZ }, () => "empty" as CellType)
+      );
+
+      const blocks = this.generateBlocks(gridSizeX, gridSizeZ);
+      this.markRoadsAndBuildings(blocks, gridSizeX, gridSizeZ);
+
+      if (this.canPlaceAllRoads(gridSizeX, gridSizeZ)) {
+        this.placeObjects(gridSizeX, gridSizeZ, cellSize, halfX, halfZ, blocks);
+        return this.objects;
+      }
+    }
+
     this.objects = [];
-    this.buildings = [];
-    this.streetLights = [];
-    this.map = Array.from({ length: gridSize }, () =>
-      Array.from({ length: gridSize }, () => "empty" as const)
+    this.map = Array.from({ length: gridSizeX }, () =>
+      Array.from({ length: gridSizeZ }, () => "empty" as CellType)
     );
-
-    this.generateStreets(gridSize);
-    this.generateRoads(gridSize, cellSize, half);
-    this.generateBuildings(gridSize, cellSize, density, half);
-    this.generateWalls(gridSize, cellSize, half);
-
+    const blocks = this.generateBlocks(gridSizeX, gridSizeZ);
+    this.markRoadsAndBuildings(blocks, gridSizeX, gridSizeZ);
+    this.placeObjects(gridSizeX, gridSizeZ, cellSize, halfX, halfZ, blocks);
     return this.objects;
   }
 
-  private generateStreets(gridSize: number): void {
-    const BLOCK_MIN = 2;
-    const BLOCK_MAX = 4;
-
-    const hStreets: number[] = [];
-    let z = 0;
-    while (z < gridSize) {
-      if (z > 0 && z < gridSize - 1) hStreets.push(z);
-      z += randInt(BLOCK_MIN, BLOCK_MAX);
-    }
-
-    const vStreets: number[] = [];
-    let x = 0;
-    while (x < gridSize) {
-      if (x > 0 && x < gridSize - 1) vStreets.push(x);
-      x += randInt(BLOCK_MIN, BLOCK_MAX);
-    }
-
-    if (!hStreets.includes(1)) hStreets.unshift(1);
-    if (!hStreets.includes(gridSize - 2)) hStreets.push(gridSize - 2);
-    if (!vStreets.includes(1)) vStreets.unshift(1);
-    if (!vStreets.includes(gridSize - 2)) vStreets.push(gridSize - 2);
-
-    for (const sz of hStreets) {
-      for (let sx = 0; sx < gridSize; sx++) this.map[sx][sz] = "road";
-    }
-    for (const sx of vStreets) {
-      for (let sz = 0; sz < gridSize; sz++) this.map[sx][sz] = "road";
-    }
-  }
-
-  private hasRoad(x: number, z: number, gridSize: number): boolean {
-    if (x < 0 || x >= gridSize || z < 0 || z >= gridSize) return false;
-    return this.map[x][z] === "road";
-  }
-
-  private generateRoads(gridSize: number, cellSize: number, half: number): void {
-    for (let x = 0; x < gridSize; x++) {
-      for (let z = 0; z < gridSize; z++) {
+  private canPlaceAllRoads(sizeX: number, sizeZ: number): boolean {
+    for (let x = 0; x < sizeX; x++) {
+      for (let z = 0; z < sizeZ; z++) {
         if (this.map[x][z] !== "road") continue;
-
         const need: ConnDir = [
-          this.hasRoad(x + 1, z, gridSize),
-          this.hasRoad(x, z + 1, gridSize),
-          this.hasRoad(x - 1, z, gridSize),
-          this.hasRoad(x, z - 1, gridSize),
+          hasRoad(x + 1, z, this.map, sizeX, sizeZ),
+          hasRoad(x, z + 1, this.map, sizeX, sizeZ),
+          hasRoad(x - 1, z, this.map, sizeX, sizeZ),
+          hasRoad(x, z - 1, this.map, sizeX, sizeZ),
         ];
+        if (!findRoadModel(need, this.modelConfigs)) return false;
+      }
+    }
+    return true;
+  }
 
-        const match = findRoadModel(need);
-        this.objects.push({
-          model: match?.model || "road-crossroad",
-          pack: "roads",
-          position: [x * cellSize + cellSize / 2 - half, 0, z * cellSize + cellSize / 2 - half],
-          rotation: match?.rotation || 0,
-          gridW: 1,
-          gridD: 1,
-          scale: 1,
-        });
+  private generateBlocks(sizeX: number, sizeZ: number): Block[] {
+    const blocks: Block[] = [];
+    const minSize = 2;
+    const maxSize = 4;
+    const roadWidth = 1;
+
+    let z = 0;
+    while (z < sizeZ) {
+      let x = 0;
+      const blockH = Math.min(randInt(minSize, maxSize), sizeZ - z);
+
+      while (x < sizeX) {
+        const blockW = Math.min(randInt(minSize, maxSize), sizeX - x);
+        blocks.push({ x, z, w: blockW, h: blockH });
+        x += blockW + roadWidth;
+      }
+
+      z += blockH + roadWidth;
+    }
+
+    return blocks;
+  }
+
+  private markRoadsAndBuildings(blocks: Block[], sizeX: number, sizeZ: number): void {
+    for (const block of blocks) {
+      for (let bx = 0; bx < block.w; bx++) {
+        for (let bz = 0; bz < block.h; bz++) {
+          const gx = block.x + bx;
+          const gz = block.z + bz;
+          if (gx < sizeX && gz < sizeZ) {
+            this.map[gx][gz] = "building";
+          }
+        }
+      }
+
+      for (let bx = -1; bx <= block.w; bx++) {
+        for (let bz = -1; bz <= block.h; bz++) {
+          const gx = block.x + bx;
+          const gz = block.z + bz;
+          if (gx < 0 || gx >= sizeX || gz < 0 || gz >= sizeZ) continue;
+          if (this.map[gx][gz] === "building") continue;
+          this.map[gx][gz] = "road";
+        }
       }
     }
   }
 
-  private generateBuildings(
-    gridSize: number,
-    cellSize: number,
-    density: Density,
-    half: number
-  ): void {
-    const buildGrid: boolean[][] = Array.from({ length: gridSize }, () =>
-      Array.from({ length: gridSize }, () => false)
+  private placeObjects(sizeX: number, sizeZ: number, cellSize: number, halfX: number, halfZ: number, blocks: Block[]): void {
+    for (let x = 0; x < sizeX; x++) {
+      for (let z = 0; z < sizeZ; z++) {
+        if (this.map[x][z] === "road") {
+          this.placeRoad(x, z, sizeX, sizeZ, cellSize, halfX, halfZ);
+        }
+      }
+    }
+
+    for (const block of blocks) {
+      this.placeBuildingsInBlock(block, cellSize, halfX, halfZ);
+    }
+  }
+
+  private placeBuildingsInBlock(block: Block, cellSize: number, halfX: number, halfZ: number): void {
+    const occupied: boolean[][] = Array.from({ length: block.w }, () =>
+      Array.from({ length: block.h }, () => false)
     );
 
-    // Collect road positions for building orientation
-    const roadPositions: { x: number; z: number }[] = [];
-    for (let x = 0; x < gridSize; x++) {
-      for (let z = 0; z < gridSize; z++) {
-        if (this.map[x][z] === "road") {
-          roadPositions.push({
-            x: x * cellSize + cellSize / 2 - half,
-            z: z * cellSize + cellSize / 2 - half,
-          });
-        }
-      }
-    }
+    const candidates = getBuildingCandidates(this.modelConfigs);
+    if (candidates.length === 0) return;
 
-    // Shuffle empty cells
-    const emptyCells: [number, number][] = [];
-    for (let x = 0; x < gridSize; x++) {
-      for (let z = 0; z < gridSize; z++) {
-        if (this.map[x][z] === "empty") emptyCells.push([x, z]);
-      }
-    }
-    for (let i = emptyCells.length - 1; i > 0; i--) {
-      const j = randInt(0, i);
-      [emptyCells[i], emptyCells[j]] = [emptyCells[j], emptyCells[i]];
-    }
+    for (let bz = 0; bz < block.h; bz++) {
+      for (let bx = 0; bx < block.w; bx++) {
+        if (occupied[bx][bz]) continue;
+        if (this.map[block.x + bx][block.z + bz] !== "building") continue;
 
-    for (const [cx, cz] of emptyCells) {
-      if (buildGrid[cx][cz]) continue;
+        let placed = false;
+        for (const cand of candidates) {
+          const gw = cand.gridW;
+          const gd = cand.gridD;
 
-      const model = pick(BUILDING_MODELS);
-      const mc = this.getModelConfig(model, "Models");
-      const gridW = mc?.gridW || 1;
-      const gridD = mc?.gridD || 1;
+          if (bx + gw > block.w || bz + gd > block.h) continue;
 
-      // Check if building fits in grid
-      if (cx + gridW > gridSize || cz + gridD > gridSize) {
-        // Fallback to 1x1
-        const posX = cx * cellSize + cellSize / 2 - half;
-        const posZ = cz * cellSize + cellSize / 2 - half;
-        const building = new Building(model, posX, posZ);
-        building.faceNearestRoad(roadPositions);
-        this.buildings.push(building);
-        this.objects.push({
-          model: building.model,
-          pack: "Models",
-          position: [building.position.x, building.position.y, building.position.z],
-          rotation: building.rotation,
-          gridW: 1,
-          gridD: 1,
-          scale: mc?.scale || 1.1,
-          foundation: mc?.foundation && mc.foundation !== "none" ? { model: mc.foundation, scale: mc.foundationScale, offsetY: mc.foundationOffsetY } : undefined,
-        });
-        buildGrid[cx][cz] = true;
-        continue;
-      }
+          let fits = true;
+          for (let dx = 0; dx < gw && fits; dx++) {
+            for (let dz = 0; dz < gd && fits; dz++) {
+              if (occupied[bx + dx][bz + dz]) fits = false;
+              if (this.map[block.x + bx + dx][block.z + bz + dz] !== "building") fits = false;
+            }
+          }
+          if (!fits) continue;
 
-      // Check all cells are free
-      let fits = true;
-      for (let dx = 0; dx < gridW && fits; dx++) {
-        for (let dz = 0; dz < gridD && fits; dz++) {
-          if (buildGrid[cx + dx]?.[cz + dz] || this.map[cx + dx]?.[cz + dz] === "road") fits = false;
-        }
-      }
+          for (let dx = 0; dx < gw; dx++) {
+            for (let dz = 0; dz < gd; dz++) {
+              occupied[bx + dx][bz + dz] = true;
+            }
+          }
 
-      if (!fits) {
-        // Fallback to 1x1
-        const posX = cx * cellSize + cellSize / 2 - half;
-        const posZ = cz * cellSize + cellSize / 2 - half;
-        const building = new Building(model, posX, posZ);
-        building.faceNearestRoad(roadPositions);
-        this.buildings.push(building);
-        this.objects.push({
-          model: building.model,
-          pack: "Models",
-          position: [building.position.x, building.position.y, building.position.z],
-          rotation: building.rotation,
-          gridW: 1,
-          gridD: 1,
-          scale: mc?.scale || 1.1,
-          foundation: mc?.foundation && mc.foundation !== "none" ? { model: mc.foundation, scale: mc.foundationScale, offsetY: mc.foundationOffsetY } : undefined,
-        });
-        buildGrid[cx][cz] = true;
-        continue;
-      }
+          const centerX = block.x + bx + (gw - 1) / 2;
+          const centerZ = block.z + bz + (gd - 1) / 2;
+          const frontDir = this.findNearestRoadDir(block.x + bx, block.z + bz, gw, gd);
 
-      // Multi-cell building
-      const centerX = cx + (gridW - 1) / 2;
-      const centerZ = cz + (gridD - 1) / 2;
-      const posX = centerX * cellSize + cellSize / 2 - half;
-      const posZ = centerZ * cellSize + cellSize / 2 - half;
-
-      const building = new Building(model, posX, posZ, "commercial", gridW, gridD);
-      building.faceNearestRoad(roadPositions);
-      this.buildings.push(building);
-
-      this.objects.push({
-        model: building.model,
-        pack: "Models",
-        position: [building.position.x, building.position.y, building.position.z],
-        rotation: building.rotation,
-        gridW,
-        gridD,
-        scale: mc?.scale || 1.1,
-        foundation: mc?.foundation && mc.foundation !== "none" ? { model: mc.foundation, scale: mc.foundationScale, offsetY: mc.foundationOffsetY } : undefined,
-      });
-
-      for (let dx = 0; dx < gridW; dx++) {
-        for (let dz = 0; dz < gridD; dz++) {
-          buildGrid[cx + dx][cz + dz] = true;
-        }
-      }
-    }
-
-    // Foundation tiles for remaining empty cells
-    for (let x = 0; x < gridSize; x++) {
-      for (let z = 0; z < gridSize; z++) {
-        if (this.map[x][z] === "empty" && !buildGrid[x][z]) {
           this.objects.push({
-            model: "tile-low",
-            pack: "roads",
-            position: [x * cellSize + cellSize / 2 - half, 0.01, z * cellSize + cellSize / 2 - half],
+            model: cand.model,
+            pack: cand.pack,
+            position: [
+              (centerX + 0.5) * cellSize - halfX,
+              0,
+              (centerZ + 0.5) * cellSize - halfZ,
+            ],
             rotation: 0,
-            gridW: 1,
-            gridD: 1,
-            scale: 1,
+            gridW: gw,
+            gridD: gd,
+            scale: cand.scale,
+            connRight: false,
+            connBack: false,
+            connLeft: false,
+            connFront: false,
+            frontDir,
           });
+
+          placed = true;
+          break;
+        }
+
+        if (!placed) {
+          occupied[bx][bz] = true;
         }
       }
     }
   }
 
-  private generateWalls(gridSize: number, cellSize: number, half: number): void {
-    const wallHeight = 2;
-    const wallOffset = 0.5;
+  private findNearestRoadDir(bx: number, bz: number, gw: number, gd: number): "left" | "right" | "front" | "back" | "none" {
+    const { gridSizeX, gridSizeZ } = this.config;
+    let bestDist = Infinity;
+    let bestDir: "left" | "right" | "front" | "back" | "none" = "none";
 
-    for (let x = 0; x < gridSize; x++) {
-      const posX = x * cellSize + cellSize / 2 - half;
-      this.objects.push({
-        model: "tile-high", pack: "roads",
-        position: [posX, wallHeight / 2, -half - wallOffset], rotation: 0, gridW: 1, gridD: 1, scale: 1,
-      });
-      this.objects.push({
-        model: "tile-high", pack: "roads",
-        position: [posX, wallHeight / 2, half + wallOffset], rotation: 0, gridW: 1, gridD: 1, scale: 1,
-      });
+    const check = (x: number, z: number, dir: "left" | "right" | "front" | "back") => {
+      if (x < 0 || x >= gridSizeX || z < 0 || z >= gridSizeZ) return;
+      if (this.map[x][z] !== "road") return;
+      const cx = bx + gw / 2;
+      const cz = bz + gd / 2;
+      const dist = (x - cx) ** 2 + (z - cz) ** 2;
+      if (dist < bestDist) {
+        bestDist = dist;
+        bestDir = dir;
+      }
+    };
+
+    for (let dx = 0; dx < gw; dx++) {
+      check(bx + dx, bz - 1, "front");
+      check(bx + dx, bz + gd, "back");
+    }
+    for (let dz = 0; dz < gd; dz++) {
+      check(bx - 1, bz + dz, "left");
+      check(bx + gw, bz + dz, "right");
     }
 
-    for (let z = 0; z < gridSize; z++) {
-      const posZ = z * cellSize + cellSize / 2 - half;
-      this.objects.push({
-        model: "tile-high", pack: "roads",
-        position: [-half - wallOffset, wallHeight / 2, posZ], rotation: Math.PI / 2, gridW: 1, gridD: 1, scale: 1,
-      });
-      this.objects.push({
-        model: "tile-high", pack: "roads",
-        position: [half + wallOffset, wallHeight / 2, posZ], rotation: Math.PI / 2, gridW: 1, gridD: 1, scale: 1,
-      });
-    }
+    return bestDir;
+  }
+
+  private placeRoad(x: number, z: number, sizeX: number, sizeZ: number, cellSize: number, halfX: number, halfZ: number): void {
+    const need: ConnDir = [
+      hasRoad(x + 1, z, this.map, sizeX, sizeZ),
+      hasRoad(x, z + 1, this.map, sizeX, sizeZ),
+      hasRoad(x - 1, z, this.map, sizeX, sizeZ),
+      hasRoad(x, z - 1, this.map, sizeX, sizeZ),
+    ];
+
+    const match = findRoadModel(need, this.modelConfigs);
+    const localConns = match ? rotateConn(need, (4 - match.rotSteps) % 4) : need;
+
+    this.objects.push({
+      model: match?.model || "road-crossroad",
+      pack: "roads",
+      position: [x * cellSize + cellSize / 2 - halfX, 0, z * cellSize + cellSize / 2 - halfZ],
+      rotation: match?.rotation || 0,
+      gridW: 1,
+      gridD: 1,
+      scale: match?.scale || 1,
+      connRight: localConns[0],
+      connBack: localConns[1],
+      connLeft: localConns[2],
+      connFront: localConns[3],
+    });
   }
 }

@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo } from "react";
-import { CityGenerator, CityObject, ModelConfig } from "@/shared/engine/CityGenerator";
+import { CityGenerator, CityObject, ModelConfig, CityConfig } from "@/shared/engine/CityGenerator";
 
 function createSeededRandom(seed: number) {
   let s = seed;
@@ -11,22 +11,13 @@ function createSeededRandom(seed: number) {
   };
 }
 
-export interface GeneratedCity {
-  objects: CityObject[];
-}
-
-export function useCityGenerator(seed: number, modelConfigs?: Record<string, ModelConfig>): GeneratedCity {
+export function useCityGenerator(seed: number, config?: Partial<CityConfig>, modelConfigs?: Record<string, ModelConfig>): CityObject[] {
   return useMemo(() => {
-    const rng = createSeededRandom(seed);
-
     const origRandom = Math.random;
-    Math.random = rng;
-
-    const generator = new CityGenerator({}, modelConfigs);
+    Math.random = createSeededRandom(seed);
+    const generator = new CityGenerator(config, modelConfigs);
     const objects = generator.generate();
-
     Math.random = origRandom;
-
-    return { objects };
-  }, [seed, modelConfigs]);
+    return objects;
+  }, [seed, config, modelConfigs]);
 }

@@ -11,7 +11,7 @@ export async function GET() {
       return NextResponse.json(JSON.parse(data));
     }
   } catch {}
-  return NextResponse.json({ gridSize: 16, configs: {} });
+  return NextResponse.json({ gridSizeX: 8, gridSizeZ: 8, configs: {} });
 }
 
 export async function POST(request: Request) {
