@@ -29,5 +29,16 @@ export async function GET() {
     packs.push({ name: "roads", models });
   }
 
+  // Characters pack (NPC models)
+  const charsPath = path.join(modelsDir, "characters");
+  if (fs.existsSync(charsPath)) {
+    const models = fs
+      .readdirSync(charsPath)
+      .filter((f) => f.endsWith(".glb"))
+      .map((f) => f.replace(".glb", ""))
+      .sort();
+    packs.push({ name: "characters", models });
+  }
+
   return NextResponse.json(packs);
 }
