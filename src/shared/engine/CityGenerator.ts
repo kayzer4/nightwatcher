@@ -407,7 +407,7 @@ export class CityGenerator {
     this.objects.push({
       model: match?.model || "road-crossroad",
       pack: "roads",
-      position: [x * cellSize + cellSize / 2 - halfX, 0, z * cellSize + cellSize / 2 - halfZ],
+      position: [x * cellSize + cellSize / 2 - halfX, -0.05, z * cellSize + cellSize / 2 - halfZ],
       rotation: match?.rotation || 0,
       gridW: 1,
       gridD: 1,
@@ -444,7 +444,7 @@ export class CityGenerator {
       this.attractors.push({
         id: `${gx}_${gz}:${a.id}`,
         type: a.type,
-        position: [wx, a.position.y ?? 0.1, wz],
+        position: [wx, (a.position.y ?? 0.1) - 0.05, wz],
         rotation: objectRotation + (a.rotation || 0),
         next: [],
         conditions: a.conditions,
@@ -481,7 +481,7 @@ export class CityGenerator {
     const link = (a: PlacedAttractor, b: PlacedAttractor) => {
       if (a.id === b.id) return;
       // both ends must agree: the target accepts arrivals only via its opposite arrow
-      if (targetIds.has(b.id) && allows(a, b) && allows(b, a) && !a.next.includes(b.id)) a.next.push(b.id);
+      if (targetIds.has(b.id) && allows(a, b) && !a.next.includes(b.id)) a.next.push(b.id);
     };
 
     // same-cell: every ordered pair, gated by each side's directions
