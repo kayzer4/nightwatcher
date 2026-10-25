@@ -730,21 +730,37 @@ function RoadLampLight({
   bulbOffset,
   isOn,
   visualDistance = DEFAULT_VISUAL_LIGHT_DISTANCE,
+  isDoubleOrCross = false,
 }: {
   light: any;
   bulbOffset: [number, number, number];
   isOn: boolean;
   visualDistance?: number;
+  isDoubleOrCross?: boolean;
 }) {
-  const intensity = light.intensity ?? 3.5;
+  const target = useMemo(() => {
+    const obj = new THREE.Object3D();
+    // Aim downwards (-Y) and slightly towards the roadway (-Z in lamp local space).
+    // This directs the spotlight cone strictly down and onto the street/sidewalk,
+    // so no light radiates backwards into the buildings behind the lamp post.
+    obj.position.set(0, -1.0, isDoubleOrCross ? 0 : -0.25);
+    return obj;
+  }, [isDoubleOrCross]);
+
+  const intensity = (light.intensity ?? 3.5) * 3.0;
+
   return (
     <group position={bulbOffset}>
+      <primitive object={target} />
       {isOn && (
-        <pointLight
+        <spotLight
+          target={target}
           color={light.color || "#fff8e7"}
           intensity={intensity}
           distance={visualDistance}
-          decay={1.1}
+          angle={Math.PI / 2.9}
+          penumbra={0.65}
+          decay={1.2}
         />
       )}
       {light.showSphere && (
@@ -753,7 +769,7 @@ function RoadLampLight({
           <meshStandardMaterial
             color={isOn ? (light.color || "#fff8e7") : "#22252a"}
             emissive={isOn ? (light.color || "#ffea9f") : "#000000"}
-            emissiveIntensity={isOn ? 3.0 : 0}
+            emissiveIntensity={isOn ? 3.5 : 0}
             roughness={isOn ? 0.1 : 0.8}
           />
         </mesh>
@@ -814,6 +830,16 @@ function RoadModel({
       removeCityCollider(colliderKey);
     };
   }, [colliderKey]);
+
+  useEffect(() => {
+    if (!gltf?.scene) return;
+    gltf.scene.traverse((child) => {
+      if ((child as THREE.Mesh).isMesh) {
+        child.castShadow = isBuilding;
+        child.receiveShadow = true;
+      }
+    });
+  }, [gltf, isBuilding]);
 
   if (!gltf) return null;
 
@@ -877,7 +903,13 @@ function RoadModel({
               }}
             >
               {hasModel && <LampMesh model={l.lampModel!} />}
-              <RoadLampLight light={l} bulbOffset={bulbOffset} isOn={true} visualDistance={visualDistance} />
+              <RoadLampLight
+                light={l}
+                bulbOffset={bulbOffset}
+                isOn={true}
+                visualDistance={visualDistance}
+                isDoubleOrCross={isDoubleOrCross}
+              />
               {/* Click target helper */}
               <mesh position={[0, 0.35, isDoubleOrCross ? 0 : -0.07]}>
                 <cylinderGeometry args={[0.16, 0.16, 0.75, 8]} />
@@ -1486,7 +1518,7 @@ export function CityViewerClient() {
       )}
       <Canvas camera={{ position: [12, 16, 12], fov: 45 }} shadows>
         <EnvironmentSystem hour={timeHour} autoTime={autoTime} onHourChange={setTimeHour} />
-        <mesh position={[0, -0.15, 0]} rotation={[-Math.PI / 2, 0, 0]}>
+        <mesh position={[0, -0.15, 0]} rotation={[-Math.PI / 2, 0, 0]} receiveShadow>
           <planeGeometry args={[DEFAULT_CONFIG.gridSizeX * DEFAULT_CONFIG.cellSize, DEFAULT_CONFIG.gridSizeZ * DEFAULT_CONFIG.cellSize]} />
           <meshStandardMaterial color="#3a3a3a" />
         </mesh>
