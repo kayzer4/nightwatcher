@@ -15,6 +15,11 @@ import {
   CityGenerator, CityObject, ModelConfig, PlacedAttractor,
   DEFAULT_CONFIG, DEFAULT_NPC_CONFIGS, NPC_BASE_HEIGHT,
 } from "@/shared/engine/CityGenerator";
+import {
+  greedySetCoverLamps,
+  intersectionFirstLamps,
+  criticalPathLamps,
+} from "../lib/lamp-placement";
 
 const CONNECTOR_COLOR = "#52c41a";
 const ATTRACTOR_COLOR = "#fadb14";
@@ -1247,6 +1252,43 @@ export function CityViewerClient() {
                   className="flex-1 bg-white/5 border border-white/15 hover:bg-white/10 text-white/70 rounded px-1.5 py-1 text-[10px] transition-colors"
                 >
                   🌑 Выключить все
+                </button>
+              </div>
+
+              {/* 3 Abstract Algorithm Presets */}
+              <div className="pt-2 border-t border-white/10 space-y-1">
+                <div className="text-[9px] uppercase tracking-wider text-amber-200/60 font-semibold">
+                  Алгоритмы расстановки (Тест):
+                </div>
+                <button
+                  onClick={() => {
+                    const ids = greedySetCoverLamps(worldLamps, attractors);
+                    setLitLampIds(ids);
+                  }}
+                  className="w-full text-left bg-white/5 border border-white/10 hover:bg-amber-500/20 hover:border-amber-400/40 text-white/85 rounded px-2 py-1 text-[10px] transition-colors flex justify-between items-center"
+                >
+                  <span>📐 1. Жадный Set Cover</span>
+                  <span className="text-[9px] text-amber-300 font-mono">Мин. фонарей</span>
+                </button>
+                <button
+                  onClick={() => {
+                    const ids = intersectionFirstLamps(worldLamps, objects, DEFAULT_CONFIG.cellSize);
+                    setLitLampIds(ids);
+                  }}
+                  className="w-full text-left bg-white/5 border border-white/10 hover:bg-amber-500/20 hover:border-amber-400/40 text-white/85 rounded px-2 py-1 text-[10px] transition-colors flex justify-between items-center"
+                >
+                  <span>🏛️ 2. Перекрестки + Ребра</span>
+                  <span className="text-[9px] text-amber-300 font-mono">Городской</span>
+                </button>
+                <button
+                  onClick={() => {
+                    const ids = criticalPathLamps(worldLamps, attractors);
+                    setLitLampIds(ids);
+                  }}
+                  className="w-full text-left bg-white/5 border border-white/10 hover:bg-amber-500/20 hover:border-amber-400/40 text-white/85 rounded px-2 py-1 text-[10px] transition-colors flex justify-between items-center"
+                >
+                  <span>🚶 3. Маршруты (Spawn→Exit)</span>
+                  <span className="text-[9px] text-amber-300 font-mono">Крит. путь</span>
                 </button>
               </div>
             </div>
