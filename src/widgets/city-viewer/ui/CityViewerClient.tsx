@@ -199,8 +199,8 @@ export function extractWorldLamps(objects: CityObject[], cellSize: number): Worl
         intensity: l.intensity ?? 3.5,
         distance: DEFAULT_VISUAL_LIGHT_DISTANCE,
         color: l.color || "#fff8e7",
-        angle: Math.PI / 2.6,
-        penumbra: 0.65,
+        angle: Math.PI / 2.3,
+        penumbra: 0.3,
       });
     }
   }
@@ -644,9 +644,10 @@ function NPCManager({
                 if (!isOccluded) {
                   const cosInner = Math.cos(lamp.angle * (1 - lamp.penumbra));
                   const coneFactor = THREE.MathUtils.clamp((cosTheta - cosOuter) / (cosInner - cosOuter), 0, 1);
-                  const distFactor = 1 - d / lamp.distance;
+                  const distFactor = Math.max(0, 1 - d / lamp.distance);
                   const intensity = lamp.intensity ?? 3.5;
-                  lampContribution += distFactor * coneFactor * (intensity / 1.5) * lampMultiplier;
+                  const effCone = Math.pow(coneFactor, 0.5);
+                  lampContribution += distFactor * effCone * (intensity / 1.5) * lampMultiplier;
                 }
               } else if (showLightRays && d < 12) {
                 // Outside spotlight cone: show a subtle gray ray
@@ -851,8 +852,8 @@ function RoadLampLight({
           color={light.color || "#fff8e7"}
           intensity={intensity}
           distance={visualDistance}
-          angle={Math.PI / 2.6}
-          penumbra={0.65}
+          angle={Math.PI / 2.3}
+          penumbra={0.3}
           decay={1.2}
         />
       )}
