@@ -162,8 +162,8 @@ export function extractWorldLamps(objects: CityObject[], cellSize: number): Worl
       const isDoubleOrCross = l.lampModel?.includes("double") || l.lampModel?.includes("cross");
       const bulbOffset = new THREE.Vector3(
         0,
-        hasModel ? 0.62 : 0,
-        hasModel ? (isDoubleOrCross ? 0 : -0.15) : 0
+        hasModel ? 0.63 : 0,
+        hasModel ? (isDoubleOrCross ? 0 : -0.17) : 0
       );
       const s = l.scale || 1;
       const rotArr = Array.isArray(l.rotation)
@@ -740,10 +740,9 @@ function RoadLampLight({
 }) {
   const target = useMemo(() => {
     const obj = new THREE.Object3D();
-    // Aim downwards (-Y) and slightly towards the roadway (-Z in lamp local space).
-    // This directs the spotlight cone strictly down and onto the street/sidewalk,
-    // so no light radiates backwards into the buildings behind the lamp post.
-    obj.position.set(0, -1.0, isDoubleOrCross ? 0 : -0.25);
+    // At bulb height ~0.63 (approx 5m in world), -0.63 reaches the road level (Y = 0).
+    // Aiming slightly forward (-0.08 in local space) illuminates the roadway/sidewalk.
+    obj.position.set(0, -0.63, isDoubleOrCross ? 0 : -0.08);
     return obj;
   }, [isDoubleOrCross]);
 
@@ -754,6 +753,7 @@ function RoadLampLight({
       <primitive object={target} />
       {isOn && (
         <spotLight
+          position={[0, 0, 0]}
           target={target}
           color={light.color || "#fff8e7"}
           intensity={intensity}
@@ -871,7 +871,7 @@ function RoadModel({
           const hasModel = l.lampModel && l.lampModel !== "none";
           const isDoubleOrCross = l.lampModel?.includes("double") || l.lampModel?.includes("cross");
           const bulbOffset: [number, number, number] = hasModel
-            ? [0, 0.62, isDoubleOrCross ? 0 : -0.15]
+            ? [0, 0.63, isDoubleOrCross ? 0 : -0.17]
             : [0, 0, 0];
           const rot = Array.isArray(l.rotation)
             ? [(l.rotation[0] * Math.PI) / 180, (l.rotation[1] * Math.PI) / 180, (l.rotation[2] * Math.PI) / 180] as [number, number, number]
