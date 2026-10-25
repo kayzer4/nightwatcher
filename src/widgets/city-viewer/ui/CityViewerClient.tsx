@@ -820,18 +820,19 @@ function Loader() {
 }
 
 export const timeGlobals = {
-  isNight: false,
-  hour: 12,
-  dayFactor: 1,
+  isNight: true,
+  hour: 23,
+  dayFactor: 0,
 };
 
 export function calculateDayFactor(hour: number): number {
   const h = ((hour % 24) + 24) % 24;
-  if (h >= 6 && h <= 19) return 1.0;
-  if (h > 19 && h <= 21) return 1.0 - (h - 19) / 2.0; // Sunset
-  if (h > 21 || h < 4.5) return 0.0; // Night
-  if (h >= 4.5 && h < 6) return (h - 4.5) / 1.5; // Sunrise
-  return 1.0;
+  // Night shift from 23:00 to 06:00
+  if (h >= 23 || h < 5) return 0.0;
+  if (h >= 5 && h <= 6) return (h - 5) * 0.15; // subtle predawn ambient glow between 5 and 6
+  if (h > 6 && h < 21) return 1.0;
+  if (h >= 21 && h < 23) return 1.0 - (h - 21) / 2.0;
+  return 0.0;
 }
 
 function formatTime(hour: number): string {
@@ -865,7 +866,12 @@ function EnvironmentSystem({
   useFrame((_, dt) => {
     let currentHour = hourRef.current;
     if (autoTime) {
-      currentHour = (currentHour + dt * 0.4) % 24;
+      currentHour = currentHour + dt * 0.4;
+      if (currentHour >= 24) currentHour -= 24;
+      // Loop night: if it goes past 06:00, wrap back to 23:00
+      if (currentHour >= 6 && currentHour < 23) {
+        currentHour = 23;
+      }
       hourRef.current = currentHour;
       const now = performance.now();
       if (now - lastReportRef.current > 200) {
@@ -877,7 +883,8 @@ function EnvironmentSystem({
     const factor = calculateDayFactor(currentHour);
     timeGlobals.hour = currentHour;
     timeGlobals.dayFactor = factor;
-    timeGlobals.isNight = factor < 0.5;
+    // Always night during the 23:00 - 06:00 shift
+    timeGlobals.isNight = true;
 
     // Day: bg #8aa0c8, hemi #cfe8ff/#44506a (0.9), ambient 0.55, dir 1.6
     // Night: bg #0a0e29, hemi #2a3a5a/#0a0e29 (0.4), ambient 0.1, dir 0.2
@@ -930,7 +937,7 @@ export function CityViewerClient() {
   const [reviveAllNonce, setReviveAllNonce] = useState(0);
   const [breakAccel, setBreakAccel] = useState(600);
   const [breakingEnabled, setBreakingEnabled] = useState(false);
-  const [timeHour, setTimeHour] = useState(12);
+  const [timeHour, setTimeHour] = useState(23);
   const [autoTime, setAutoTime] = useState(false);
   const [showLightLevels, setShowLightLevels] = useState(_showLightLevels);
   const [lightStats, setLightStats] = useState({ lit: 0, dark: 0, total: 0, avg: 1 });
@@ -1071,67 +1078,74 @@ export function CityViewerClient() {
 
           {/* Time & Lighting Controls */}
           <div className="mt-3 flex flex-col gap-2 pt-2 border-t border-white/10">
-            <div className="text-[10px] uppercase tracking-wider text-amber-300/80 font-semibold">Время и Освещение</div>
+            <div className="text-[10px] uppercase tracking-wider text-amber-300/80 font-semibold">Ночная смена (23:00 – 06:00)</div>
             <div className="grid grid-cols-3 gap-1">
               <button
-                onClick={() => { setTimeHour(12); setAutoTime(false); }}
+                onClick={() => { setTimeHour(23); setAutoTime(false); }}
                 className={`px-1.5 py-1 text-[11px] rounded border transition-colors ${
-                  Math.abs(timeHour - 12) < 0.5
-                    ? "bg-amber-500/30 border-amber-400 text-amber-200"
+                  Math.abs(timeHour - 23) < 0.5
+                    ? "bg-indigo-500/40 border-indigo-400 text-indigo-100 font-semibold"
                     : "bg-white/5 border-white/10 hover:bg-white/15 text-white/70"
                 }`}
               >
-                ☀️ День
+                🌙 23:00
               </button>
               <button
-                onClick={() => { setTimeHour(19.5); setAutoTime(false); }}
+                onClick={() => { setTimeHour(2.5); setAutoTime(false); }}
                 className={`px-1.5 py-1 text-[11px] rounded border transition-colors ${
-                  Math.abs(timeHour - 19.5) < 0.5
-                    ? "bg-orange-500/30 border-orange-400 text-orange-200"
+                  Math.abs(timeHour - 2.5) < 0.5
+                    ? "bg-indigo-500/40 border-indigo-400 text-indigo-100 font-semibold"
                     : "bg-white/5 border-white/10 hover:bg-white/15 text-white/70"
                 }`}
               >
-                🌅 Закат
+                🌌 02:30
               </button>
               <button
-                onClick={() => { setTimeHour(0); setAutoTime(false); }}
+                onClick={() => { setTimeHour(5.5); setAutoTime(false); }}
                 className={`px-1.5 py-1 text-[11px] rounded border transition-colors ${
-                  timeHour < 1 || timeHour > 23
-                    ? "bg-indigo-500/30 border-indigo-400 text-indigo-200"
+                  Math.abs(timeHour - 5.5) < 0.5
+                    ? "bg-indigo-500/40 border-indigo-400 text-indigo-100 font-semibold"
                     : "bg-white/5 border-white/10 hover:bg-white/15 text-white/70"
                 }`}
               >
-                🌙 Ночь
+                🕯️ 05:30
               </button>
             </div>
             <div className="flex flex-col gap-1 text-[10px] text-white/60">
               <div className="flex justify-between items-center">
                 <span>Время: <strong className="text-white font-mono">{formatTime(timeHour)}</strong></span>
-                <span className={`px-1.5 py-0.5 rounded text-[9px] ${timeGlobals.isNight ? "bg-amber-500/20 text-amber-300 border border-amber-500/30" : "bg-blue-500/20 text-blue-300 border border-blue-500/30"}`}>
-                  {timeGlobals.isNight ? "🏮 Фонари ВКЛ" : "☀️ День"}
+                <span className="px-1.5 py-0.5 rounded text-[9px] bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">
+                  🏮 Ночь (Фонари ВКЛ)
                 </span>
               </div>
               <input
                 type="range"
                 min={0}
-                max={24}
+                max={7}
                 step={0.25}
-                value={timeHour}
+                value={timeHour >= 23 ? timeHour - 23 : timeHour + 1}
                 onChange={(e) => {
-                  setTimeHour(Number(e.target.value));
+                  const shift = Number(e.target.value);
+                  const h = (23 + shift) % 24;
+                  setTimeHour(h);
                   setAutoTime(false);
                 }}
-                className="w-full accent-amber-400"
+                className="w-full accent-indigo-400"
               />
+              <div className="flex justify-between text-[9px] text-white/40">
+                <span>23:00</span>
+                <span>02:30</span>
+                <span>06:00</span>
+              </div>
             </div>
             <label className="flex items-center gap-2 cursor-pointer text-[10px] text-white/60">
               <input
                 type="checkbox"
                 checked={autoTime}
                 onChange={(e) => setAutoTime(e.target.checked)}
-                className="w-3.5 h-3.5 accent-amber-400"
+                className="w-3.5 h-3.5 accent-indigo-400"
               />
-              <span>Авто-ход времени</span>
+              <span>Ход ночного времени (23:00 → 06:00)</span>
             </label>
 
             {/* Live Stats */}

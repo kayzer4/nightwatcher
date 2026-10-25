@@ -4,7 +4,7 @@ export class TimeSystem {
   private _hour: number;
   private _speed: number;
 
-  constructor(startHour: number = 12) {
+  constructor(startHour: number = gameConfig.time.startHour) {
     this._hour = startHour;
     this._speed = 1;
   }
@@ -21,20 +21,26 @@ export class TimeSystem {
     this._speed = value;
   }
 
+  /**
+   * Progress of the night shift (23:00 to 06:00) from 0 to 1.
+   */
   get progress(): number {
-    return this._hour / 24;
+    const shift = this._hour >= 23 ? (this._hour - 23) : (this._hour + 1);
+    return Math.min(1, Math.max(0, shift / 7));
   }
 
   update(deltaSeconds: number) {
-    // default speed: 1 hour game time = 10 seconds real time?
-    // Let's say speed = 1 means 1 game hour per second.
     this._hour += this._speed * deltaSeconds;
     if (this._hour >= 24) {
       this._hour -= 24;
     }
+    // Loop night: if it goes past endHour (6:00) and before startHour (23:00), wrap back to 23:00
+    if (this._hour >= gameConfig.time.endHour && this._hour < gameConfig.time.startHour) {
+      this._hour = gameConfig.time.startHour;
+    }
   }
 
   reset() {
-    this._hour = 12;
+    this._hour = gameConfig.time.startHour;
   }
 }
