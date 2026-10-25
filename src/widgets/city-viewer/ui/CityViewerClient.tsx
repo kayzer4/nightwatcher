@@ -199,8 +199,8 @@ export function extractWorldLamps(objects: CityObject[], cellSize: number): Worl
         intensity: l.intensity ?? 3.5,
         distance: DEFAULT_VISUAL_LIGHT_DISTANCE,
         color: l.color || "#fff8e7",
-        angle: Math.PI / 2.02,
-        penumbra: 0.2,
+        angle: Math.PI / 2.5,
+        penumbra: 0.35,
       });
     }
   }
@@ -630,7 +630,14 @@ function NPCManager({
                   isOccluded = isLightOccludedByBuildings(lamp.pos, _npcChest, buildingBoxes);
                 }
 
-                if (showLightRays) {
+                const cosInner = Math.cos(lamp.angle * (1 - lamp.penumbra));
+                const coneFactor = THREE.MathUtils.clamp((cosTheta - cosOuter) / (cosInner - cosOuter), 0, 1);
+                const distFactor = Math.max(0, 1 - d / lamp.distance);
+                const intensity = lamp.intensity ?? 3.5;
+                const effCone = Math.pow(coneFactor, 0.45);
+                const contrib = distFactor * effCone * (intensity / 1.5) * lampMultiplier;
+
+                if (showLightRays && (contrib > 0.04 || isOccluded)) {
                   rayPositions.push(lamp.pos.x, lamp.pos.y, lamp.pos.z);
                   if (isOccluded) {
                     rayPositions.push(lamp.pos.x + rayDirX * hitDist, lamp.pos.y + rayDirY * hitDist, lamp.pos.z + rayDirZ * hitDist);
@@ -642,17 +649,8 @@ function NPCManager({
                 }
 
                 if (!isOccluded) {
-                  const cosInner = Math.cos(lamp.angle * (1 - lamp.penumbra));
-                  const coneFactor = THREE.MathUtils.clamp((cosTheta - cosOuter) / (cosInner - cosOuter), 0, 1);
-                  const distFactor = Math.max(0, 1 - d / lamp.distance);
-                  const intensity = lamp.intensity ?? 3.5;
-                  const effCone = Math.pow(coneFactor, 0.4);
-                  lampContribution += distFactor * effCone * (intensity / 1.5) * lampMultiplier;
+                  lampContribution += contrib;
                 }
-              } else if (showLightRays && d < lamp.distance) {
-                // Outside spotlight cone: show a subtle gray ray
-                rayPositions.push(lamp.pos.x, lamp.pos.y, lamp.pos.z, _npcChest.x, _npcChest.y, _npcChest.z);
-                rayColors.push(0.5, 0.5, 0.6, 0.5, 0.5, 0.6);
               }
             }
           }
@@ -817,7 +815,7 @@ function LampMesh({ model }: { model: string }) {
   return <primitive object={sceneClone} />;
 }
 
-export const DEFAULT_VISUAL_LIGHT_DISTANCE = 18.0;
+export const DEFAULT_VISUAL_LIGHT_DISTANCE = 14.0;
 
 function RoadLampLight({
   light,
@@ -851,8 +849,8 @@ function RoadLampLight({
           color={light.color || "#fff8e7"}
           intensity={intensity}
           distance={visualDistance}
-          angle={Math.PI / 2.02}
-          penumbra={0.2}
+          angle={Math.PI / 2.5}
+          penumbra={0.35}
           decay={1.2}
         />
       )}
