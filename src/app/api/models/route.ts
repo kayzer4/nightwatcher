@@ -21,13 +21,15 @@ export async function GET() {
   // Roads pack
   const roadsPath = path.join(modelsDir, "roads");
   if (fs.existsSync(roadsPath)) {
-    const models = fs
+    const roadModels = fs
       .readdirSync(roadsPath)
       .filter((f) => f.endsWith(".glb") && !f.includes("barrier") && !f.includes("construction"))
       .map((f) => f.replace(".glb", ""))
       .sort();
-    packs.push({ name: "roads", models });
+    packs.push({ name: "roads", models: roadModels });
   }
+
+
 
   // Characters pack (NPC models)
   const charsPath = path.join(modelsDir, "characters");

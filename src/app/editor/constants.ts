@@ -1,6 +1,36 @@
 import type { AttractorConfig, AttractorType, ActivityType } from "@/shared/engine/CityGenerator";
 import type { CSSProperties } from "react";
 
+export type GizmoMode = "translate" | "rotate" | "scale";
+
+export interface LightConfig {
+  id: string;
+  position: [number, number, number];
+  rotation?: number | [number, number, number]; // degrees: number (around Y) or [x, y, z] Euler
+  scale?: number; // uniform scale of the lamp
+  lampModel?: string; // 3D model name, e.g. "light-curved", "light-square", or "none"
+  color: string;
+  intensity: number;
+  distance: number;
+  showSphere: boolean;
+}
+
+export function parseRotation(r?: number | [number, number, number]): [number, number, number] {
+  if (Array.isArray(r)) return [r[0] ?? 0, r[1] ?? 0, r[2] ?? 0];
+  if (typeof r === "number") return [0, r, 0];
+  return [0, 0, 0];
+}
+
+export const AVAILABLE_LAMP_MODELS = [
+  { value: "none", label: "Без столба (только свет)" },
+  { value: "light-curved", label: "Фонарь изогнутый (light-curved)" },
+  { value: "light-square", label: "Фонарь прямой (light-square)" },
+  { value: "light-curved-double", label: "Двойной изогнутый (light-curved-double)" },
+  { value: "light-square-double", label: "Двойной прямой (light-square-double)" },
+  { value: "light-curved-cross", label: "Крестовой изогнутый (light-curved-cross)" },
+  { value: "light-square-cross", label: "Крестовой прямой (light-square-cross)" },
+];
+
 export interface ModelConfig {
   name: string; pack: string; modelType: string;
   rotation: number; scale: number; offsetY: number;
@@ -15,7 +45,7 @@ export interface ModelConfig {
   actualHeight: number; actualWidth: number; actualDepth: number;
   foundation: "none" | "low" | "high";
   foundationScale: number; foundationOffsetY: number;
-  lightRadius: number; lightColor: string; lightOnByDefault: boolean;
+  lights?: LightConfig[];
   attractors?: AttractorConfig[];
 }
 
@@ -27,7 +57,7 @@ export const DEFAULT_CONFIG: Omit<ModelConfig, "name" | "pack" | "modelType"> = 
   roadType: "none", isTerminal: false, tags: [], notes: "",
   frontDir: "none", height: "low", actualHeight: 1, actualWidth: 1, actualDepth: 1,
   foundation: "none", foundationScale: 1, foundationOffsetY: 0,
-  lightRadius: 0, lightColor: "#fffbe6", lightOnByDefault: true,
+  lights: [],
 };
 
 export const ATTRACTOR_TYPES: { value: AttractorType; label: string }[] = [

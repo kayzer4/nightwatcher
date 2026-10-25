@@ -1,7 +1,7 @@
 "use client";
 
-import { Canvas, useFrame } from "@react-three/fiber";
-import { OrbitControls, useGLTF } from "@react-three/drei";
+import { Canvas, useFrame, useThree } from "@react-three/fiber";
+import { OrbitControls, useGLTF, Billboard, Text as DreiText } from "@react-three/drei";
 import { Suspense, useState, useEffect, useCallback, useRef, useMemo } from "react";
 import * as THREE from "three";
 import { clone as skeletonClone } from "three/examples/jsm/utils/SkeletonUtils.js";
@@ -24,6 +24,7 @@ let _showConnectors = typeof window !== "undefined" && localStorage.getItem("nw_
 let _showAttractors = typeof window !== "undefined" && localStorage.getItem("nw_showAttractors") !== "false";
 let _showNPCs = typeof window !== "undefined" && localStorage.getItem("nw_showNPCs") !== "false";
 let _showVectors = typeof window !== "undefined" && localStorage.getItem("nw_showVectors") === "true";
+let _showLightLevels = typeof window !== "undefined" ? localStorage.getItem("nw_showLightLevels") !== "false" : true;
 
 const FRONT_ROTATION: Record<string, number> = {
   front: 0,
@@ -107,6 +108,8 @@ interface NPCInstance {
   waitUntil: number;
   state: "alive" | "ragdoll";
   downSince: number;
+  lightLevel: number;
+  isLit: boolean;
   // Populated by NPCCharacter once the skinned clone is ready.
   clone?: THREE.Object3D;
   mixer?: THREE.AnimationMixer;
@@ -120,6 +123,112 @@ const _m = new THREE.Matrix4();
 // different scale — the old per-render Box3 measured through a stale parent matrix
 // and oscillated between two building sizes on every re-render.
 const _buildingFitCache = new Map<string, number>();
+
+export interface WorldLamp {
+  pos: THREE.Vector3;
+  intensity: number;
+  distance: number;
+  color: string;
+}
+
+export function extractWorldLamps(objects: CityObject[], cellSize: number): WorldLamp[] {
+  const lamps: WorldLamp[] = [];
+  for (const obj of objects) {
+    if (!obj.lights || obj.lights.length === 0) continue;
+    const isBuilding = obj.pack === "Models";
+    const fitScale = isBuilding
+      ? (_buildingFitCache.get(`/models/${obj.pack}/${obj.model}.glb`) || cellSize)
+      : (obj.pack === "props" ? (obj.scale || 1) : cellSize);
+    const frontRot = isBuilding ? (FRONT_ROTATION[obj.frontDir || "none"] || 0) : 0;
+
+    const tilePos = new THREE.Vector3(obj.position[0], obj.position[1], obj.position[2]);
+    const tileEuler = new THREE.Euler(obj.rotationX || 0, obj.rotation + frontRot, 0, "YXZ");
+
+    for (const l of obj.lights) {
+      const hasModel = l.lampModel && l.lampModel !== "none";
+      const isDoubleOrCross = l.lampModel?.includes("double") || l.lampModel?.includes("cross");
+      const bulbOffset = new THREE.Vector3(
+        0,
+        hasModel ? 0.62 : 0,
+        hasModel ? (isDoubleOrCross ? 0 : -0.15) : 0
+      );
+      const s = l.scale || 1;
+      const rotArr = Array.isArray(l.rotation)
+        ? [(l.rotation[0] * Math.PI) / 180, (l.rotation[1] * Math.PI) / 180, (l.rotation[2] * Math.PI) / 180]
+        : [0, ((l.rotation || 0) * Math.PI) / 180, 0];
+      const lampEuler = new THREE.Euler(rotArr[0], rotArr[1], rotArr[2], "YXZ");
+
+      const p = bulbOffset.clone();
+      p.multiplyScalar(s);
+      p.applyEuler(lampEuler);
+      p.add(new THREE.Vector3(l.position[0], l.position[1], l.position[2]));
+      p.multiplyScalar(fitScale);
+      p.applyEuler(tileEuler);
+      p.add(tilePos);
+
+      lamps.push({
+        pos: p,
+        intensity: l.intensity ?? 2,
+        distance: l.distance ?? 6,
+        color: l.color || "#fffbe6",
+      });
+    }
+  }
+  return lamps;
+}
+
+function NPCLightIndicator({ npc }: { npc: NPCInstance }) {
+  const textRef = useRef<any>(null);
+  const sphereRef = useRef<THREE.Mesh>(null);
+  const lastPct = useRef<number>(-1);
+
+  useFrame(() => {
+    if (npc.state === "ragdoll") {
+      if (textRef.current) textRef.current.visible = false;
+      if (sphereRef.current) sphereRef.current.visible = false;
+      return;
+    }
+    if (textRef.current && !textRef.current.visible) textRef.current.visible = true;
+    if (sphereRef.current && !sphereRef.current.visible) sphereRef.current.visible = true;
+
+    const pct = Math.round((npc.lightLevel ?? 1) * 100);
+    if (pct !== lastPct.current) {
+      lastPct.current = pct;
+      const isLit = npc.isLit;
+      if (textRef.current) {
+        textRef.current.text = isLit ? `💡 ${pct}%` : `🌑 ${pct}%`;
+        textRef.current.color = isLit ? "#ffea79" : "#8892b0";
+        textRef.current.sync?.();
+      }
+      if (sphereRef.current) {
+        const mat = sphereRef.current.material as THREE.MeshBasicMaterial;
+        mat.color.set(isLit ? "#ffea79" : "#3b4252");
+      }
+    }
+  });
+
+  return (
+    <group position={[0, npc.height + 0.35, 0]}>
+      <mesh ref={sphereRef} position={[0, 0.22, 0]}>
+        <sphereGeometry args={[0.06, 12, 12]} />
+        <meshBasicMaterial color="#ffea79" />
+      </mesh>
+      <Billboard>
+        <DreiText
+          ref={textRef}
+          fontSize={0.24}
+          color="#ffea79"
+          anchorX="center"
+          anchorY="middle"
+          outlineWidth={0.025}
+          outlineColor="#000000"
+        >
+          {"💡 100%"}
+        </DreiText>
+      </Billboard>
+    </group>
+  );
+}
 
 /** Axis-aligned box of a model in its own local space, ignoring parent transforms. */
 function measureLocalBox(root: THREE.Object3D): THREE.Box3 {
@@ -276,6 +385,7 @@ const RAGDOLL_LIFETIME_MS = 15000; // auto-revive so the city never ends up perm
 
 function NPCManager({
   attractors, count, configs, dropAllNonce, reviveAllNonce, breakAccel, breakingEnabled,
+  worldLamps, showLightLevels, onStatsUpdate,
 }: {
   attractors: PlacedAttractor[];
   count: number;
@@ -284,6 +394,9 @@ function NPCManager({
   reviveAllNonce: number;
   breakAccel: number;
   breakingEnabled: boolean;
+  worldLamps: WorldLamp[];
+  showLightLevels: boolean;
+  onStatsUpdate?: (stats: { lit: number; dark: number; total: number; avg: number }) => void;
 }) {
   const [npcList, setNpcList] = useState<NPCInstance[]>([]);
   const listRef = useRef<NPCInstance[]>([]);
@@ -292,6 +405,7 @@ function NPCManager({
   const systemRef = useRef<RagdollSystem | null>(null);
   const breakAccelRef = useRef(breakAccel);
   const cityCollidersVersionRef = useRef(-1);
+  const lastStatsReportRef = useRef(0);
   breakAccelRef.current = breakAccel;
 
   useEffect(() => {
@@ -355,6 +469,8 @@ function NPCManager({
         waitUntil: now + i * 250,
         state: "alive",
         downSince: 0,
+        lightLevel: 1.0,
+        isLit: true,
       });
     }
     listRef.current = created;
@@ -391,6 +507,8 @@ function NPCManager({
     npc.phase = "wait";
     npc.waitUntil = performance.now() + 400 + Math.random() * 1200;
     npc.state = "alive";
+    npc.lightLevel = 1.0;
+    npc.isLit = true;
     npc.mixer?.update(0);
     system.createAlive(npc.id, npc.pos.x, npc.pos.y, npc.pos.z, npc.height);
   }, []);
@@ -416,12 +534,45 @@ function NPCManager({
     const map = mapRef.current;
     const system = systemRef.current;
 
+    const dayFactor = timeGlobals.dayFactor ?? 1;
+    const isNight = timeGlobals.isNight;
+    const lampMultiplier = isNight ? 1 : THREE.MathUtils.clamp((0.7 - dayFactor) / 0.3, 0, 1);
+
+    let aliveCount = 0;
+    let litCount = 0;
+    let totalLightSum = 0;
+    const _npcChest = new THREE.Vector3();
+
     for (let i = 0; i < list.length; i++) {
       const npc = list[i];
       const g = groupRefs.current[i];
       if (!g) continue;
       g.visible = _showNPCs;
       if (!_showNPCs) continue;
+
+      if (npc.state === "alive") {
+        aliveCount++;
+        _npcChest.set(npc.pos.x, 0.9, npc.pos.z);
+
+        let lampContribution = 0;
+        if (lampMultiplier > 0 && worldLamps.length > 0) {
+          for (const lamp of worldLamps) {
+            const d = _npcChest.distanceTo(lamp.pos);
+            if (d < lamp.distance) {
+              const factor = 1 - d / lamp.distance;
+              const intensity = lamp.intensity ?? 2;
+              lampContribution += factor * (intensity / 1.5) * lampMultiplier;
+            }
+          }
+        }
+
+        const totalLevel = THREE.MathUtils.clamp(dayFactor * 0.95 + lampContribution + 0.03, 0, 1);
+        npc.lightLevel = totalLevel;
+        npc.isLit = totalLevel >= 0.25;
+        if (npc.isLit) litCount++;
+        totalLightSum += totalLevel;
+      }
+
       // A ragdolled NPC is positioned in world space by the physics bodies; the group
       // stays frozen so the bone world->local solve in the system remains valid.
       if (npc.state === "ragdoll") continue;
@@ -513,6 +664,18 @@ function NPCManager({
       const npc = list.find((n) => n.id === impact.npcId);
       if (npc && npc.state === "alive") ragdollNpc(npc, impact.dir, Math.min(1.2, impact.speed));
     }
+
+    if (now - lastStatsReportRef.current > 250) {
+      lastStatsReportRef.current = now;
+      if (onStatsUpdate && aliveCount > 0) {
+        onStatsUpdate({
+          lit: litCount,
+          dark: aliveCount - litCount,
+          total: aliveCount,
+          avg: totalLightSum / aliveCount,
+        });
+      }
+    }
   });
 
   if (npcList.length === 0) return null;
@@ -522,9 +685,41 @@ function NPCManager({
       {npcList.map((npc, i) => (
         <group key={npc.id} ref={(el) => { groupRefs.current[i] = el; }} position={npc.pos}>
           <NPCCharacter npc={npc} />
+          {showLightLevels && <NPCLightIndicator npc={npc} />}
         </group>
       ))}
     </>
+  );
+}
+
+function LampMesh({ model }: { model: string }) {
+  const gltf = useUncachedGLTF(`/models/props/${model}.glb`);
+  const sceneClone = useMemo(() => {
+    if (!gltf?.scene) return null;
+    return gltf.scene.clone(true);
+  }, [gltf]);
+  if (!sceneClone) return null;
+  return <primitive object={sceneClone} />;
+}
+
+function RoadLampLight({ light, bulbOffset }: { light: any; bulbOffset: [number, number, number] }) {
+  const lightRef = useRef<THREE.Group>(null);
+  useFrame(() => {
+    if (lightRef.current) {
+      lightRef.current.visible = timeGlobals.isNight;
+    }
+  });
+
+  return (
+    <group ref={lightRef} position={bulbOffset} visible={false}>
+      <pointLight color={light.color} intensity={light.intensity} distance={light.distance} />
+      {light.showSphere && (
+        <mesh>
+          <sphereGeometry args={[0.035, 16, 16]} />
+          <meshBasicMaterial color={light.color} />
+        </mesh>
+      )}
+    </group>
   );
 }
 
@@ -585,7 +780,7 @@ function RoadModel({ obj, cellSize, colliderKey }: { obj: CityObject; cellSize: 
     const fs = Math.min(cellSize / Math.max(size.x, 1e-6), cellSize / Math.max(size.z, 1e-6));
     if (fs > 0 && fs < 1e4) _buildingFitCache.set(modelUrl, fs);
     return fs;
-  })() : cellSize;
+  })() : obj.pack === "props" ? (obj.scale || 1) : cellSize;
 
   const frontRot = isBuilding ? (FRONT_ROTATION[obj.frontDir || "none"] || 0) : 0;
 
@@ -593,6 +788,24 @@ function RoadModel({ obj, cellSize, colliderKey }: { obj: CityObject; cellSize: 
     <group ref={outerRef} position={obj.position}>
       <group rotation={[obj.rotationX || 0, obj.rotation + frontRot, 0]} scale={[fitScale, fitScale, fitScale]}>
         <primitive object={gltf.scene} />
+        {obj.lights && obj.lights.map((l, i) => {
+          const hasModel = l.lampModel && l.lampModel !== "none";
+          const isDoubleOrCross = l.lampModel?.includes("double") || l.lampModel?.includes("cross");
+          const bulbOffset: [number, number, number] = hasModel
+            ? [0, 0.62, isDoubleOrCross ? 0 : -0.15]
+            : [0, 0, 0];
+          const rot = Array.isArray(l.rotation)
+            ? [(l.rotation[0] * Math.PI) / 180, (l.rotation[1] * Math.PI) / 180, (l.rotation[2] * Math.PI) / 180] as [number, number, number]
+            : [0, ((l.rotation || 0) * Math.PI) / 180, 0] as [number, number, number];
+
+          const s = l.scale || 1;
+          return (
+            <group key={l.id || i} position={[l.position[0], l.position[1], l.position[2]]} rotation={rot} scale={[s, s, s]}>
+              {hasModel && <LampMesh model={l.lampModel!} />}
+              <RoadLampLight light={l} bulbOffset={bulbOffset} />
+            </group>
+          );
+        })}
         {obj.connRight && <ConnectionCube position={[0.5, 0.15, 0]} />}
         {obj.connBack && <ConnectionCube position={[0, 0.15, 0.5]} />}
         {obj.connLeft && <ConnectionCube position={[-0.5, 0.15, 0]} />}
@@ -606,6 +819,108 @@ function Loader() {
   return <mesh position={[0, 0.5, 0]}><boxGeometry args={[1, 1, 1]} /><meshStandardMaterial color="gray" wireframe /></mesh>;
 }
 
+export const timeGlobals = {
+  isNight: false,
+  hour: 12,
+  dayFactor: 1,
+};
+
+export function calculateDayFactor(hour: number): number {
+  const h = ((hour % 24) + 24) % 24;
+  if (h >= 6 && h <= 19) return 1.0;
+  if (h > 19 && h <= 21) return 1.0 - (h - 19) / 2.0; // Sunset
+  if (h > 21 || h < 4.5) return 0.0; // Night
+  if (h >= 4.5 && h < 6) return (h - 4.5) / 1.5; // Sunrise
+  return 1.0;
+}
+
+function formatTime(hour: number): string {
+  const h = Math.floor(hour) % 24;
+  const m = Math.floor((hour - Math.floor(hour)) * 60);
+  return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
+}
+
+import { TimeSystem } from "@/shared/engine/TimeSystem";
+
+function EnvironmentSystem({
+  hour,
+  autoTime,
+  onHourChange,
+}: {
+  hour: number;
+  autoTime: boolean;
+  onHourChange: (h: number) => void;
+}) {
+  const { scene } = useThree();
+  const hemiRef = useRef<THREE.HemisphereLight>(null);
+  const ambientRef = useRef<THREE.AmbientLight>(null);
+  const dirRef = useRef<THREE.DirectionalLight>(null);
+  const hourRef = useRef(hour);
+  const lastReportRef = useRef(performance.now());
+
+  useEffect(() => {
+    hourRef.current = hour;
+  }, [hour]);
+
+  useFrame((_, dt) => {
+    let currentHour = hourRef.current;
+    if (autoTime) {
+      currentHour = (currentHour + dt * 0.4) % 24;
+      hourRef.current = currentHour;
+      const now = performance.now();
+      if (now - lastReportRef.current > 200) {
+        lastReportRef.current = now;
+        onHourChange(currentHour);
+      }
+    }
+
+    const factor = calculateDayFactor(currentHour);
+    timeGlobals.hour = currentHour;
+    timeGlobals.dayFactor = factor;
+    timeGlobals.isNight = factor < 0.5;
+
+    // Day: bg #8aa0c8, hemi #cfe8ff/#44506a (0.9), ambient 0.55, dir 1.6
+    // Night: bg #0a0e29, hemi #2a3a5a/#0a0e29 (0.4), ambient 0.1, dir 0.2
+
+    scene.background = new THREE.Color().lerpColors(
+      new THREE.Color("#0a0e29"),
+      new THREE.Color("#8aa0c8"),
+      factor
+    );
+
+    if (hemiRef.current) {
+      hemiRef.current.color.lerpColors(new THREE.Color("#2a3a5a"), new THREE.Color("#cfe8ff"), factor);
+      hemiRef.current.groundColor.lerpColors(new THREE.Color("#0a0e29"), new THREE.Color("#44506a"), factor);
+      hemiRef.current.intensity = 0.4 + factor * 0.5;
+    }
+    if (ambientRef.current) {
+      ambientRef.current.intensity = 0.1 + factor * 0.45;
+    }
+    if (dirRef.current) {
+      dirRef.current.intensity = 0.2 + factor * 1.4;
+    }
+  });
+
+  return (
+    <>
+      <hemisphereLight ref={hemiRef} />
+      <ambientLight ref={ambientRef} />
+      <directionalLight
+        ref={dirRef}
+        position={[20, 30, 15]}
+        castShadow
+        shadow-mapSize={[2048, 2048]}
+        shadow-camera-near={1}
+        shadow-camera-far={80}
+        shadow-camera-left={-30}
+        shadow-camera-right={30}
+        shadow-camera-top={30}
+        shadow-camera-bottom={-30}
+      />
+    </>
+  );
+}
+
 export function CityViewerClient() {
   const [seed, setSeed] = useState(() => Math.floor(Math.random() * 100000));
   const [seedInput, setSeedInput] = useState(() => String(seed));
@@ -615,6 +930,10 @@ export function CityViewerClient() {
   const [reviveAllNonce, setReviveAllNonce] = useState(0);
   const [breakAccel, setBreakAccel] = useState(600);
   const [breakingEnabled, setBreakingEnabled] = useState(false);
+  const [timeHour, setTimeHour] = useState(12);
+  const [autoTime, setAutoTime] = useState(false);
+  const [showLightLevels, setShowLightLevels] = useState(_showLightLevels);
+  const [lightStats, setLightStats] = useState({ lit: 0, dark: 0, total: 0, avg: 1 });
 
   useEffect(() => {
     setIsDev(process.env.NODE_ENV === "development");
@@ -644,6 +963,10 @@ export function CityViewerClient() {
       Math.random = origRandom;
     }
   }, [seed, modelConfigs]);
+
+  const worldLamps = useMemo(() => {
+    return extractWorldLamps(objects, DEFAULT_CONFIG.cellSize);
+  }, [objects]);
 
   const roadCount = objects.filter((o) => o.pack === "roads").length;
   const buildingCount = objects.filter((o) => o.pack === "Models").length;
@@ -682,7 +1005,7 @@ export function CityViewerClient() {
       </div>
 
       {isDev && (
-        <div className="absolute top-4 left-4 z-10 bg-black/60 backdrop-blur-md border border-white/10 rounded-xl p-4 text-white text-sm min-w-[200px]">
+        <div className="absolute top-4 left-4 z-10 bg-black/60 backdrop-blur-md border border-white/10 rounded-xl p-4 text-white text-sm min-w-[220px] max-h-[90vh] overflow-y-auto">
           <div className="font-bold mb-3 text-white/80 text-xs uppercase tracking-wider">Dev Tools</div>
           <label className="flex items-center gap-2 cursor-pointer mb-1">
             <input
@@ -732,6 +1055,113 @@ export function CityViewerClient() {
             />
             <span>Show Vectors</span>
           </label>
+          <label className="flex items-center gap-2 cursor-pointer mb-1">
+            <input
+              type="checkbox"
+              checked={showLightLevels}
+              onChange={(e) => {
+                setShowLightLevels(e.target.checked);
+                _showLightLevels = e.target.checked;
+                localStorage.setItem("nw_showLightLevels", String(e.target.checked));
+              }}
+              className="w-4 h-4 accent-amber-400"
+            />
+            <span>Show Light Levels (NPC)</span>
+          </label>
+
+          {/* Time & Lighting Controls */}
+          <div className="mt-3 flex flex-col gap-2 pt-2 border-t border-white/10">
+            <div className="text-[10px] uppercase tracking-wider text-amber-300/80 font-semibold">Время и Освещение</div>
+            <div className="grid grid-cols-3 gap-1">
+              <button
+                onClick={() => { setTimeHour(12); setAutoTime(false); }}
+                className={`px-1.5 py-1 text-[11px] rounded border transition-colors ${
+                  Math.abs(timeHour - 12) < 0.5
+                    ? "bg-amber-500/30 border-amber-400 text-amber-200"
+                    : "bg-white/5 border-white/10 hover:bg-white/15 text-white/70"
+                }`}
+              >
+                ☀️ День
+              </button>
+              <button
+                onClick={() => { setTimeHour(19.5); setAutoTime(false); }}
+                className={`px-1.5 py-1 text-[11px] rounded border transition-colors ${
+                  Math.abs(timeHour - 19.5) < 0.5
+                    ? "bg-orange-500/30 border-orange-400 text-orange-200"
+                    : "bg-white/5 border-white/10 hover:bg-white/15 text-white/70"
+                }`}
+              >
+                🌅 Закат
+              </button>
+              <button
+                onClick={() => { setTimeHour(0); setAutoTime(false); }}
+                className={`px-1.5 py-1 text-[11px] rounded border transition-colors ${
+                  timeHour < 1 || timeHour > 23
+                    ? "bg-indigo-500/30 border-indigo-400 text-indigo-200"
+                    : "bg-white/5 border-white/10 hover:bg-white/15 text-white/70"
+                }`}
+              >
+                🌙 Ночь
+              </button>
+            </div>
+            <div className="flex flex-col gap-1 text-[10px] text-white/60">
+              <div className="flex justify-between items-center">
+                <span>Время: <strong className="text-white font-mono">{formatTime(timeHour)}</strong></span>
+                <span className={`px-1.5 py-0.5 rounded text-[9px] ${timeGlobals.isNight ? "bg-amber-500/20 text-amber-300 border border-amber-500/30" : "bg-blue-500/20 text-blue-300 border border-blue-500/30"}`}>
+                  {timeGlobals.isNight ? "🏮 Фонари ВКЛ" : "☀️ День"}
+                </span>
+              </div>
+              <input
+                type="range"
+                min={0}
+                max={24}
+                step={0.25}
+                value={timeHour}
+                onChange={(e) => {
+                  setTimeHour(Number(e.target.value));
+                  setAutoTime(false);
+                }}
+                className="w-full accent-amber-400"
+              />
+            </div>
+            <label className="flex items-center gap-2 cursor-pointer text-[10px] text-white/60">
+              <input
+                type="checkbox"
+                checked={autoTime}
+                onChange={(e) => setAutoTime(e.target.checked)}
+                className="w-3.5 h-3.5 accent-amber-400"
+              />
+              <span>Авто-ход времени</span>
+            </label>
+
+            {/* Live Stats */}
+            <div className="bg-white/5 rounded-lg p-2 text-[10px] space-y-1 border border-white/10 mt-1">
+              <div className="text-[10px] uppercase tracking-wider text-amber-300/70 font-semibold mb-1">
+                Чувствительность к свету
+              </div>
+              <div className="flex justify-between">
+                <span className="text-white/60">💡 Освещены:</span>
+                <span className="text-emerald-400 font-mono font-bold">
+                  {lightStats.lit} / {lightStats.total} ({lightStats.total > 0 ? Math.round((lightStats.lit / lightStats.total) * 100) : 0}%)
+                </span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-white/60">🌑 В темноте:</span>
+                <span className="text-indigo-300 font-mono font-bold">
+                  {lightStats.dark} / {lightStats.total} ({lightStats.total > 0 ? Math.round((lightStats.dark / lightStats.total) * 100) : 0}%)
+                </span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-white/60">🏮 Фонарей на карте:</span>
+                <span className="text-amber-200 font-mono font-bold">{worldLamps.length}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-white/60">Ср. освещенность:</span>
+                <span className="text-white font-mono font-bold">{Math.round((lightStats.avg || 0) * 100)}%</span>
+              </div>
+            </div>
+          </div>
+
           <div className="mt-3 flex flex-col gap-2">
             <div className="text-[10px] uppercase tracking-wider text-white/40">Ragdoll</div>
             <div className="flex gap-2">
@@ -785,22 +1215,7 @@ export function CityViewerClient() {
         </div>
       )}
       <Canvas camera={{ position: [12, 16, 12], fov: 45 }} shadows>
-        <color attach="background" args={["#8aa0c8"]} />
-        <hemisphereLight args={["#cfe8ff", "#44506a", 0.9]} />
-        <ambientLight intensity={0.55} />
-        <directionalLight
-          position={[20, 30, 15]}
-          intensity={1.6}
-          castShadow
-          shadow-mapSize={[2048, 2048]}
-          shadow-camera-near={1}
-          shadow-camera-far={80}
-          shadow-camera-left={-30}
-          shadow-camera-right={30}
-          shadow-camera-top={30}
-          shadow-camera-bottom={-30}
-        />
-        <directionalLight position={[-18, 6, -12]} intensity={0.45} />
+        <EnvironmentSystem hour={timeHour} autoTime={autoTime} onHourChange={setTimeHour} />
         <mesh position={[0, -0.15, 0]} rotation={[-Math.PI / 2, 0, 0]}>
           <planeGeometry args={[DEFAULT_CONFIG.gridSizeX * DEFAULT_CONFIG.cellSize, DEFAULT_CONFIG.gridSizeZ * DEFAULT_CONFIG.cellSize]} />
           <meshStandardMaterial color="#3a3a3a" />
@@ -825,6 +1240,9 @@ export function CityViewerClient() {
             reviveAllNonce={reviveAllNonce}
             breakAccel={breakAccel}
             breakingEnabled={breakingEnabled}
+            worldLamps={worldLamps}
+            showLightLevels={showLightLevels}
+            onStatsUpdate={setLightStats}
           />
         </Suspense>
         <OrbitControls enablePan enableZoom enableRotate maxPolarAngle={Math.PI / 2.1} />

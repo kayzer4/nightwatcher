@@ -1,11 +1,13 @@
 "use client";
 
-import { Text as DreiText, Billboard } from "@react-three/drei";
-import { useRef, useMemo, useEffect } from "react";
+import { Text as DreiText, Billboard, TransformControls } from "@react-three/drei";
+import { useRef, useMemo, useEffect, useState, useCallback, createContext, useContext } from "react";
 import { useThree, useFrame, type ThreeEvent } from "@react-three/fiber";
 import * as THREE from "three";
 import { useUncachedGLTF } from "@/shared/hooks/useUncachedGLTF";
 import type { AttractorConfig } from "@/shared/engine/CityGenerator";
+import type { LightConfig, GizmoMode } from "./constants";
+import { parseRotation } from "./constants";
 import { ATTRACTOR_COLORS, DIRECTION_DEGREES, NPC_BASE_HEIGHT } from "@/shared/engine/CityGenerator";
 
 type Side = "left" | "right" | "front" | "back";
@@ -13,9 +15,14 @@ const SIDE_COLORS: Record<Side, string> = { left: "#1677ff", right: "#52c41a", f
 const SIDE_OFFSETS: Record<Side, [number, number, number]> = { left: [-1, 0, 0], right: [1, 0, 0], front: [0, 0, -1], back: [0, 0, 1] };
 const SIDE_ROTATIONS: Record<Side, number> = { left: Math.PI / 2, right: -Math.PI / 2, front: 0, back: Math.PI };
 
-const snapFrac = (v: number) => Math.min(0.5, Math.max(-0.5, Math.round(v * 20) / 20));
+const clampFrac = (v: number) => Math.min(0.5, Math.max(-0.5, Math.round(v * 1000) / 1000));
+const snapPlaceFrac = (v: number) => Math.min(0.5, Math.max(-0.5, Math.round(v * 40) / 40));
+
+const LabelsContext = createContext<boolean>(true);
 
 function Label({ position, text, color }: { position: [number, number, number]; text: string; color: string }) {
+  const showLabels = useContext(LabelsContext);
+  if (!showLabels) return null;
   return (
     <Billboard position={position}>
       <DreiText fontSize={0.14} color={color} anchorX="center" anchorY="middle" outlineWidth={0.01} outlineColor="#000">
@@ -28,13 +35,13 @@ function Label({ position, text, color }: { position: [number, number, number]; 
 function DirectionArrows() {
   return (
     <group>
-      <mesh position={[0, 0.01, -1.8]} rotation={[Math.PI / 2, 0, 0]}><coneGeometry args={[0.06, 0.2, 4]} /><meshStandardMaterial color="#ff4d4f" /></mesh>
+      <mesh position={[0, 0.01, -1.8]} rotation={[-Math.PI / 2, 0, 0]}><coneGeometry args={[0.06, 0.2, 16]} /><meshStandardMaterial color="#ff4d4f" /></mesh>
       <Label position={[0, 0.12, -2.05]} text="-Z" color="#ff4d4f" />
-      <mesh position={[1.8, 0.01, 0]} rotation={[0, 0, -Math.PI / 2]}><coneGeometry args={[0.06, 0.2, 4]} /><meshStandardMaterial color="#52c41a" /></mesh>
+      <mesh position={[1.8, 0.01, 0]} rotation={[0, 0, -Math.PI / 2]}><coneGeometry args={[0.06, 0.2, 16]} /><meshStandardMaterial color="#52c41a" /></mesh>
       <Label position={[2.05, 0.12, 0]} text="+X" color="#52c41a" />
-      <mesh position={[-1.8, 0.01, 0]} rotation={[0, 0, Math.PI / 2]}><coneGeometry args={[0.06, 0.2, 4]} /><meshStandardMaterial color="#1677ff" /></mesh>
+      <mesh position={[-1.8, 0.01, 0]} rotation={[0, 0, Math.PI / 2]}><coneGeometry args={[0.06, 0.2, 16]} /><meshStandardMaterial color="#1677ff" /></mesh>
       <Label position={[-2.05, 0.12, 0]} text="-X" color="#1677ff" />
-      <mesh position={[0, 0.01, 1.8]} rotation={[Math.PI / 2, 0, Math.PI]}><coneGeometry args={[0.06, 0.2, 4]} /><meshStandardMaterial color="#722ed1" /></mesh>
+      <mesh position={[0, 0.01, 1.8]} rotation={[Math.PI / 2, 0, 0]}><coneGeometry args={[0.06, 0.2, 16]} /><meshStandardMaterial color="#722ed1" /></mesh>
       <Label position={[0, 0.12, 2.05]} text="+Z" color="#722ed1" />
     </group>
   );
@@ -73,12 +80,12 @@ function RoadConnector({ side, active }: { side: Side; active: boolean }) {
         <meshStandardMaterial color="#faad14" transparent opacity={0.35} side={THREE.DoubleSide} depthWrite={false} />
       </mesh>
       <group position={[pos[0], 0.12, pos[2]]} rotation={[0, arrowRot, 0]}>
-        <mesh position={[0, 0, 0.15]}>
-          <coneGeometry args={[0.06, 0.18, 3]} />
+        <mesh position={[0, 0, 0.1]} rotation={[Math.PI / 2, 0, 0]}>
+          <coneGeometry args={[0.07, 0.16, 16]} />
           <meshStandardMaterial color="#faad14" />
         </mesh>
-        <mesh position={[0, 0, 0]} rotation={[Math.PI / 2, 0, 0]}>
-          <cylinderGeometry args={[0.02, 0.02, 0.25, 6]} />
+        <mesh position={[0, 0, -0.06]} rotation={[Math.PI / 2, 0, 0]}>
+          <cylinderGeometry args={[0.025, 0.025, 0.2, 16]} />
           <meshStandardMaterial color="#faad14" />
         </mesh>
       </group>
@@ -101,12 +108,12 @@ function FrontSideIndicator({ frontDir, rotation }: { frontDir: "left" | "right"
         <meshStandardMaterial color="#ff4d4f" transparent opacity={0.35} side={THREE.DoubleSide} depthWrite={false} />
       </mesh>
       <group position={[wallPos[0], 0.85, wallPos[2]]} rotation={[0, SIDE_ROTATIONS[frontDir], 0]}>
-        <mesh position={[0, 0, 0.08]}>
-          <coneGeometry args={[0.06, 0.18, 3]} />
+        <mesh position={[0, 0, 0.1]} rotation={[Math.PI / 2, 0, 0]}>
+          <coneGeometry args={[0.07, 0.16, 16]} />
           <meshStandardMaterial color="#ff4d4f" />
         </mesh>
-        <mesh position={[0, 0, 0]} rotation={[Math.PI / 2, 0, 0]}>
-          <cylinderGeometry args={[0.02, 0.02, 0.2, 6]} />
+        <mesh position={[0, 0, -0.06]} rotation={[Math.PI / 2, 0, 0]}>
+          <cylinderGeometry args={[0.025, 0.025, 0.2, 16]} />
           <meshStandardMaterial color="#ff4d4f" />
         </mesh>
       </group>
@@ -176,6 +183,16 @@ function PreviewModel({ url, onFit }: { url: string; onFit?: (pos: [number, numb
     onFit([dist, dist * 0.8, dist], [center.x, center.y, center.z]);
   }
   return <primitive object={gltf.scene} />;
+}
+
+function LampMesh({ model }: { model: string }) {
+  const gltf = useUncachedGLTF(`/models/props/${model}.glb`);
+  const sceneClone = useMemo(() => {
+    if (!gltf?.scene) return null;
+    return gltf.scene.clone(true);
+  }, [gltf]);
+  if (!sceneClone) return null;
+  return <primitive object={sceneClone} />;
 }
 
 function Loader() {
@@ -300,44 +317,92 @@ function DirRay({ ox, oy, oz, dirDeg, len, color }: {
   return <primitive object={arrow} />;
 }
 
-function AttractorMarkers({ attractors, gridW, gridD, scale, selectedId, onCubeDown }: {
+function AttractorMarkers({
+  attractors,
+  gridW,
+  gridD,
+  scale,
+  selectedId,
+  isDragging = false,
+  onCubeDown,
+  registerRef,
+}: {
   attractors: AttractorConfig[];
   gridW: number;
   gridD: number;
   scale: number;
   selectedId?: string | null;
+  isDragging?: boolean;
   onCubeDown?: (e: ThreeEvent<PointerEvent>, id: string) => void;
+  registerRef: (id: string, node: THREE.Group | null) => void;
 }) {
   const world = useMemo(
-    () => attractors.map((a) => {
-      const s = a.scale ?? 0.05;
-      const pos: [number, number, number] = [a.position.x * gridW, (a.position.y + s / 2) / scale, a.position.z * gridD];
-      const dirs = a.directions === undefined ? DIRECTION_DEGREES : a.directions;
-      return { a, pos, dirs, rayLen: 0.35 * ((gridW + gridD) / 2) };
-    }),
+    () =>
+      attractors.map((a) => {
+        const s = a.scale ?? 0.05;
+        const pos: [number, number, number] = [
+          a.position.x * gridW,
+          (a.position.y + s / 2) / scale,
+          a.position.z * gridD,
+        ];
+        const dirs = a.directions === undefined ? DIRECTION_DEGREES : a.directions;
+        return { a, pos, dirs, rayLen: 0.35 * ((gridW + gridD) / 2) };
+      }),
     [attractors, gridW, gridD, scale],
   );
+
   if (!attractors.length) return null;
+
   return (
     <group>
       {world.map(({ a, pos, dirs, rayLen }) => {
         const s = a.scale ?? 0.05;
+        const relativeScale = s / 0.05;
         const color = ATTRACTOR_COLORS[a.type];
         const selected = selectedId === a.id;
+        const isSelfDragging = selected && isDragging;
+        const [rx, ry, rz] = parseRotation(a.rotation);
+        const rotRad: [number, number, number] = [
+          (rx * Math.PI) / 180,
+          (ry * Math.PI) / 180,
+          (rz * Math.PI) / 180,
+        ];
         return (
-          <group key={a.id}>
-            <mesh
-              position={pos}
-              onPointerDown={onCubeDown ? (e) => onCubeDown(e, a.id) : undefined}
-            >
-              <boxGeometry args={[s, s, s]} />
-              <meshStandardMaterial color={color} emissive={selected ? color : "#000000"} emissiveIntensity={selected ? 0.5 : 0} />
+          <group
+            key={a.id}
+            ref={(node) => registerRef(a.id, node)}
+            {...(!isSelfDragging ? {
+              position: pos,
+              rotation: rotRad,
+              scale: [relativeScale, relativeScale, relativeScale] as [number, number, number],
+            } : {})}
+          >
+            <mesh onPointerDown={onCubeDown ? (e) => onCubeDown(e, a.id) : undefined}>
+              <boxGeometry args={[0.05, 0.05, 0.05]} />
+              <meshStandardMaterial
+                color={color}
+                emissive={selected ? color : "#000000"}
+                emissiveIntensity={selected ? 0.6 : 0}
+              />
             </mesh>
-            <Label position={[pos[0], pos[1] + s / 2 + 0.1, pos[2]]} text={a.id} color={color} />
-            {selected && dirs.map((d) => (
-              <DirRay key={`${a.id}-d${d}`} ox={pos[0]} oy={pos[1]} oz={pos[2]} dirDeg={d} len={rayLen}
-                color={(a.crossingDirections ?? []).includes(d) ? "#52c41a" : "#1677ff"} />
-            ))}
+            {/* Click target helper for easy picking */}
+            <mesh onPointerDown={onCubeDown ? (e) => onCubeDown(e, a.id) : undefined}>
+              <boxGeometry args={[0.11, 0.11, 0.11]} />
+              <meshBasicMaterial transparent opacity={0} depthWrite={false} />
+            </mesh>
+            <Label position={[0, 0.025 + 0.1, 0]} text={a.id} color={color} />
+            {selected &&
+              dirs.map((d) => (
+                <DirRay
+                  key={`${a.id}-d${d}`}
+                  ox={0}
+                  oy={0}
+                  oz={0}
+                  dirDeg={d}
+                  len={rayLen}
+                  color={(a.crossingDirections ?? []).includes(d) ? "#52c41a" : "#1677ff"}
+                />
+              ))}
           </group>
         );
       })}
@@ -351,6 +416,91 @@ function PlacementPlane({ gridW, gridD, onDown }: { gridW: number; gridD: number
     <mesh position={[0, 0.004, 0]} rotation={[-Math.PI / 2, 0, 0]} geometry={geo} onPointerDown={onDown}>
       <meshBasicMaterial color="#faad14" transparent opacity={0.14} side={THREE.DoubleSide} depthWrite={false} />
     </mesh>
+  );
+}
+
+function MovableLamp({
+  light,
+  isSelected,
+  isDragging = false,
+  onSelect,
+  registerRef,
+}: {
+  light: LightConfig;
+  isSelected: boolean;
+  isDragging?: boolean;
+  onSelect: () => void;
+  registerRef: (id: string, node: THREE.Group | null) => void;
+}) {
+  const hasModel = light.lampModel && light.lampModel !== "none";
+  const isDoubleOrCross = light.lampModel?.includes("double") || light.lampModel?.includes("cross");
+  const bulbOffset: [number, number, number] = hasModel
+    ? [0, 0.62, isDoubleOrCross ? 0 : -0.15]
+    : [0, 0, 0];
+
+  const [rx, ry, rz] = parseRotation(light.rotation);
+  const rotRad: [number, number, number] = [
+    (rx * Math.PI) / 180,
+    (ry * Math.PI) / 180,
+    (rz * Math.PI) / 180,
+  ];
+  const s = light.scale || 1;
+  const isSelfDragging = isSelected && isDragging;
+
+  return (
+    <group
+      ref={(node) => registerRef(light.id, node)}
+      {...(!isSelfDragging ? {
+        position: [light.position[0], light.position[1], light.position[2]] as [number, number, number],
+        rotation: rotRad,
+        scale: [s, s, s] as [number, number, number],
+      } : {})}
+      onClick={(e) => {
+        e.stopPropagation();
+        onSelect();
+      }}
+    >
+      {/* Invisible hit cylinder to make picking easy even on thin poles */}
+      <mesh position={[0, 0.4, 0]}>
+        <cylinderGeometry args={[0.18, 0.18, 0.85, 8]} />
+        <meshBasicMaterial transparent opacity={0} depthWrite={false} />
+      </mesh>
+
+      {/* Selection ring on ground */}
+      {isSelected && (
+        <group position={[0, 0.015, 0]}>
+          <mesh rotation={[-Math.PI / 2, 0, 0]}>
+            <ringGeometry args={[0.12, 0.16, 32]} />
+            <meshBasicMaterial color="#faad14" side={THREE.DoubleSide} />
+          </mesh>
+          <mesh rotation={[-Math.PI / 2, 0, 0]}>
+            <circleGeometry args={[0.12, 32]} />
+            <meshBasicMaterial color="#faad14" transparent opacity={0.25} side={THREE.DoubleSide} />
+          </mesh>
+        </group>
+      )}
+
+      {/* 3D Lamp Mesh or fallback */}
+      {hasModel ? (
+        <LampMesh model={light.lampModel!} />
+      ) : (
+        <mesh position={[0, 0.12, 0]}>
+          <sphereGeometry args={[0.08, 16, 16]} />
+          <meshStandardMaterial color={light.color} emissive={light.color} emissiveIntensity={0.6} wireframe={!isSelected} />
+        </mesh>
+      )}
+
+      {/* Bulb & light source */}
+      <group position={bulbOffset}>
+        <pointLight color={light.color} intensity={light.intensity} distance={light.distance} />
+        {light.showSphere && (
+          <mesh>
+            <sphereGeometry args={[0.035, 16, 16]} />
+            <meshBasicMaterial color={light.color} />
+          </mesh>
+        )}
+      </group>
+    </group>
   );
 }
 
@@ -373,12 +523,13 @@ interface SceneProps {
   foundation?: "none" | "low" | "high";
   foundationScale?: number;
   foundationOffsetY?: number;
-  mode?: "road" | "building" | "character";
+  lights?: LightConfig[];
+  mode?: "road" | "building" | "character" | "prop";
   attractors?: AttractorConfig[];
   placing?: boolean;
   selectedId?: string | null;
   onPlace?: (x: number, z: number) => void;
-  onMove?: (id: string, x: number, z: number) => void;
+  onMove?: (id: string, x: number, y: number, z: number, rotation?: number | [number, number, number], scale?: number) => void;
   onDelete?: (id: string) => void;
   onSelect?: (id: string | null) => void;
   animName?: string | null;
@@ -386,6 +537,13 @@ interface SceneProps {
   animSpeed?: number;
   animKey?: number;
   onAnimations?: (names: string[]) => void;
+  selectedLightId?: string | null;
+  onSelectLight?: (id: string | null) => void;
+  onUpdateLight?: (id: string, updates: Partial<LightConfig>) => void;
+  gizmoMode?: GizmoMode;
+  onDragStart?: () => void;
+  onDragEnd?: () => void;
+  showLabels?: boolean;
 }
 
 export function EditorScene({
@@ -393,98 +551,186 @@ export function EditorScene({
   connectLeft, connectRight, connectFront, connectBack,
   frontDir = "none", actualHeight = 1, actualWidth = 1, actualDepth = 1,
   foundation = "none", foundationScale = 1, foundationOffsetY = 0,
+  lights = [],
   mode = "road", attractors = [],
   placing = false, selectedId = null, onPlace, onMove, onDelete, onSelect,
   animName = null, animPlaying = true, animSpeed = 1, animKey = 0, onAnimations,
+  selectedLightId = null, onSelectLight, onUpdateLight, gizmoMode = "translate",
+  onDragStart, onDragEnd,
+  showLabels = true,
 }: SceneProps) {
   const url = selectedModel ? `/models/${selectedPack}/${selectedModel}.glb` : "";
-  const { gl, camera } = useThree();
   const groupRef = useRef<THREE.Group>(null);
-  const downRef = useRef<{ id: string; x: number; y: number } | null>(null);
-  const canvasDownRef = useRef(false);
-  const movedRef = useRef(false);
-  const dragIdRef = useRef<string | null>(null);
-  const placeRef = useRef<{ x: number; z: number } | null>(null);
-  const raycaster = useMemo(() => new THREE.Raycaster(), []);
-  const dragPlane = useMemo(() => new THREE.Plane(new THREE.Vector3(0, 1, 0), 0), []);
-  const hitPoint = useMemo(() => new THREE.Vector3(), []);
-  const ndc = useMemo(() => new THREE.Vector2(), []);
+  const isDraggingRef = useRef(false);
+  const [isDraggingState, setIsDraggingState] = useState(false);
+
+  const lampRefs = useRef<Map<string, THREE.Group>>(new Map());
+  const attractorRefs = useRef<Map<string, THREE.Group>>(new Map());
+
+  // Determine active target for root-level TransformControls
+  const [activeTarget, setActiveTarget] = useState<THREE.Group | null>(null);
+
+  const registerLampRef = useCallback((id: string, node: THREE.Group | null) => {
+    if (node) {
+      lampRefs.current.set(id, node);
+      if (selectedLightId === id) setActiveTarget(node);
+    } else {
+      lampRefs.current.delete(id);
+      if (selectedLightId === id) setActiveTarget(null);
+    }
+  }, [selectedLightId]);
+
+  const registerAttractorRef = useCallback((id: string, node: THREE.Group | null) => {
+    if (node) {
+      attractorRefs.current.set(id, node);
+      if (selectedId === id) setActiveTarget(node);
+    } else {
+      attractorRefs.current.delete(id);
+      if (selectedId === id) setActiveTarget(null);
+    }
+  }, [selectedId]);
+
+  // Synchronize lamp transforms from props when NOT actively dragging
+  useEffect(() => {
+    if (isDraggingRef.current) return;
+    for (const l of lights) {
+      const g = lampRefs.current.get(l.id);
+      if (g) {
+        g.position.set(l.position[0], l.position[1], l.position[2]);
+        const [rx, ry, rz] = parseRotation(l.rotation);
+        g.rotation.set(
+          (rx * Math.PI) / 180,
+          (ry * Math.PI) / 180,
+          (rz * Math.PI) / 180
+        );
+        const s = l.scale || 1;
+        g.scale.set(s, s, s);
+      }
+    }
+  }, [lights]);
+
+  // Synchronize attractor transforms from props when NOT actively dragging
+  useEffect(() => {
+    if (isDraggingRef.current) return;
+    for (const a of attractors) {
+      const g = attractorRefs.current.get(a.id);
+      if (g) {
+        const s = a.scale ?? 0.05;
+        g.position.set(a.position.x * gridW, (a.position.y + s / 2) / scale, a.position.z * gridD);
+        const [rx, ry, rz] = parseRotation(a.rotation);
+        g.rotation.set(
+          (rx * Math.PI) / 180,
+          (ry * Math.PI) / 180,
+          (rz * Math.PI) / 180
+        );
+        const relativeScale = s / 0.05;
+        g.scale.set(relativeScale, relativeScale, relativeScale);
+      }
+    }
+  }, [attractors, gridW, gridD, scale]);
 
   useEffect(() => {
-    gl.domElement.style.cursor = placing ? "crosshair" : "";
-    return () => { gl.domElement.style.cursor = ""; };
-  }, [placing, gl]);
+    if (selectedLightId) {
+      setActiveTarget(lampRefs.current.get(selectedLightId) ?? null);
+    } else if (selectedId) {
+      setActiveTarget(attractorRefs.current.get(selectedId) ?? null);
+    } else {
+      setActiveTarget(null);
+    }
+  }, [selectedLightId, selectedId]);
 
-  useEffect(() => {
-    const el = gl.domElement;
-    const onCanvasDown = () => { canvasDownRef.current = true; };
-    const onWinMove = (ev: PointerEvent) => {
-      const down = downRef.current;
-      if (!down) return;
-      if (Math.abs(ev.clientX - down.x) + Math.abs(ev.clientY - down.y) > 5) movedRef.current = true;
-      if (!placing || dragIdRef.current !== down.id || !movedRef.current) return;
-      const a = attractors.find((x) => x.id === down.id);
-      if (!a || !groupRef.current || !onMove) return;
-      const s = a.scale ?? 0.05;
-      dragPlane.constant = -(offsetY + a.position.y + s / 2);
-      const rect = el.getBoundingClientRect();
-      ndc.set(((ev.clientX - rect.left) / rect.width) * 2 - 1, -((ev.clientY - rect.top) / rect.height) * 2 + 1);
-      raycaster.setFromCamera(ndc, camera);
-      if (!raycaster.ray.intersectPlane(dragPlane, hitPoint)) return;
-      const local = groupRef.current.worldToLocal(hitPoint.clone());
-      onMove(down.id, snapFrac(local.x / gridW), snapFrac(local.z / gridD));
-    };
-    const onWinUp = (ev: PointerEvent) => {
-      const onCanvas = canvasDownRef.current;
-      const down = downRef.current;
-      const moved = movedRef.current;
-      const place = placeRef.current;
-      canvasDownRef.current = false;
-      downRef.current = null;
-      dragIdRef.current = null;
-      movedRef.current = false;
-      placeRef.current = null;
-      if (!onCanvas || moved) return;
-      if (down?.id === "place") {
-        if (placing && place && !ev.shiftKey) onPlace?.(place.x, place.z);
-        return;
-      }
-      if (down && placing && ev.shiftKey) {
-        onDelete?.(down.id);
-        onSelect?.(null);
-        return;
-      }
-      onSelect?.(down ? down.id : null);
-    };
-    el.addEventListener("pointerdown", onCanvasDown);
-    window.addEventListener("pointermove", onWinMove);
-    window.addEventListener("pointerup", onWinUp);
-    return () => {
-      el.removeEventListener("pointerdown", onCanvasDown);
-      window.removeEventListener("pointermove", onWinMove);
-      window.removeEventListener("pointerup", onWinUp);
-    };
-  }, [placing, gl, camera, attractors, offsetY, gridW, gridD, onPlace, onMove, onDelete, onSelect]);
+  const rafId = useRef<number | null>(null);
+
+  const doSyncObjectChange = useCallback(() => {
+    if (selectedLightId) {
+      const g = lampRefs.current.get(selectedLightId);
+      if (!g) return;
+      const pos = g.position;
+      const degX = Math.round(THREE.MathUtils.radToDeg(g.rotation.x) * 10) / 10;
+      const degY = Math.round(THREE.MathUtils.radToDeg(g.rotation.y) * 10) / 10;
+      const degZ = Math.round(THREE.MathUtils.radToDeg(g.rotation.z) * 10) / 10;
+      const normRot: [number, number, number] = [
+        Math.round((((degX % 360) + 360) % 360) * 10) / 10,
+        Math.round((((degY % 360) + 360) % 360) * 10) / 10,
+        Math.round((((degZ % 360) + 360) % 360) * 10) / 10,
+      ];
+      const uniformScale = Math.round(Math.max(0.1, (g.scale.x + g.scale.y + g.scale.z) / 3) * 1000) / 1000;
+      onUpdateLight?.(selectedLightId, {
+        position: [
+          Math.round(pos.x * 1000) / 1000,
+          Math.round(pos.y * 1000) / 1000,
+          Math.round(pos.z * 1000) / 1000,
+        ],
+        rotation: normRot,
+        scale: uniformScale,
+      });
+    } else if (selectedId) {
+      const g = attractorRefs.current.get(selectedId);
+      if (!g) return;
+      const a = attractors.find((x) => x.id === selectedId);
+      const curS = a?.scale ?? 0.05;
+      const ax = clampFrac(g.position.x / gridW);
+      const ay = Math.round((g.position.y * scale - curS / 2) * 1000) / 1000;
+      const az = clampFrac(g.position.z / gridD);
+      const degX = Math.round(THREE.MathUtils.radToDeg(g.rotation.x) * 10) / 10;
+      const degY = Math.round(THREE.MathUtils.radToDeg(g.rotation.y) * 10) / 10;
+      const degZ = Math.round(THREE.MathUtils.radToDeg(g.rotation.z) * 10) / 10;
+      const normRot: [number, number, number] = [
+        Math.round((((degX % 360) + 360) % 360) * 10) / 10,
+        Math.round((((degY % 360) + 360) % 360) * 10) / 10,
+        Math.round((((degZ % 360) + 360) % 360) * 10) / 10,
+      ];
+      const avgScale = (g.scale.x + g.scale.y + g.scale.z) / 3;
+      const newScale = Math.round(Math.max(0.01, avgScale * 0.05) * 1000) / 1000;
+      onMove?.(selectedId, ax, ay, az, normRot, newScale);
+    }
+  }, [selectedLightId, selectedId, gridW, scale, gridD, attractors, onUpdateLight, onMove]);
+
+  const handleObjectChange = useCallback(() => {
+    if (rafId.current !== null) return;
+    rafId.current = requestAnimationFrame(() => {
+      rafId.current = null;
+      doSyncObjectChange();
+    });
+  }, [doSyncObjectChange]);
+
+  const handleDragEnd = useCallback(() => {
+    if (rafId.current !== null) {
+      cancelAnimationFrame(rafId.current);
+      rafId.current = null;
+    }
+    doSyncObjectChange();
+    isDraggingRef.current = false;
+    setIsDraggingState(false);
+    onDragEnd?.();
+  }, [doSyncObjectChange, onDragEnd]);
 
   const handleCubeDown = (e: ThreeEvent<PointerEvent>, id: string) => {
     e.stopPropagation();
-    downRef.current = { id, x: e.nativeEvent.clientX, y: e.nativeEvent.clientY };
-    dragIdRef.current = placing ? id : null;
-    movedRef.current = false;
+    if (e.shiftKey) {
+      onDelete?.(id);
+      if (selectedId === id) onSelect?.(null);
+    } else {
+      if (selectedLightId) onSelectLight?.(null);
+      onSelect?.(id);
+    }
+  };
+
+  const handleSelectLamp = (id: string) => {
+    if (selectedId) onSelect?.(null);
+    onSelectLight?.(id);
   };
 
   const handlePlaneDown = (e: ThreeEvent<PointerEvent>) => {
     e.stopPropagation();
-    if (!groupRef.current) return;
-    downRef.current = { id: "place", x: e.nativeEvent.clientX, y: e.nativeEvent.clientY };
-    dragIdRef.current = null;
-    movedRef.current = false;
+    if (!groupRef.current || !onPlace) return;
     const local = groupRef.current.worldToLocal(e.point.clone());
-    placeRef.current = { x: snapFrac(local.x / gridW), z: snapFrac(local.z / gridD) };
+    onPlace(snapPlaceFrac(local.x / gridW), snapPlaceFrac(local.z / gridD));
   };
 
   return (
-    <group>
+    <LabelsContext.Provider value={showLabels}>
+      <group>
       <group scale={[scale, scale, scale]} position={[0, offsetY, 0]}>
         {url ? (
           mode === "character" ? (
@@ -501,6 +747,16 @@ export function EditorScene({
             <PreviewModel url={url} />
           )
         ) : null}
+        {lights.map((l, i) => (
+          <MovableLamp
+            key={l.id || i}
+            light={l}
+            isSelected={selectedLightId === l.id}
+            isDragging={isDraggingState}
+            onSelect={() => handleSelectLamp(l.id)}
+            registerRef={registerLampRef}
+          />
+        ))}
         {mode === "road" && (
           <group rotation={[0, rotation, 0]} ref={groupRef}>
             <RoadConnector side="left" active={connectLeft} />
@@ -513,7 +769,9 @@ export function EditorScene({
               gridD={gridD}
               scale={scale}
               selectedId={selectedId}
+              isDragging={isDraggingState}
               onCubeDown={handleCubeDown}
+              registerRef={registerAttractorRef}
             />
             {placing && <PlacementPlane gridW={gridW} gridD={gridD} onDown={handlePlaneDown} />}
           </group>
@@ -535,6 +793,30 @@ export function EditorScene({
         <GridCell gridW={gridW} gridD={gridD} />
       )}
       <DirectionArrows />
+
+      {/* Root-level TransformControls: NO double-scale or offset drift, 100% exact alignment */}
+      {activeTarget && (
+        <TransformControls
+          object={activeTarget}
+          mode={gizmoMode}
+          space={gizmoMode === "rotate" ? "local" : "world"}
+          size={0.7}
+          showX={true}
+          showY={true}
+          showZ={true}
+          translationSnap={null}
+          rotationSnap={null}
+          scaleSnap={null}
+          onMouseDown={() => {
+            isDraggingRef.current = true;
+            setIsDraggingState(true);
+            onDragStart?.();
+          }}
+          onMouseUp={handleDragEnd}
+          onObjectChange={handleObjectChange}
+        />
+      )}
     </group>
+    </LabelsContext.Provider>
   );
 }

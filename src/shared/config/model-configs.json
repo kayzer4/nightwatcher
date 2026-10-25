@@ -63,6 +63,45 @@
             180
           ]
         }
+      ],
+      "lights": [
+        {
+          "id": "8e6686ca",
+          "lampModel": "light-curved",
+          "position": [
+            0,
+            0,
+            0.45
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "color": "#fffbe6",
+          "intensity": 2,
+          "distance": 6,
+          "showSphere": true,
+          "scale": 1
+        },
+        {
+          "id": "cfae0ac6",
+          "lampModel": "light-curved",
+          "position": [
+            0,
+            0,
+            -0.45
+          ],
+          "rotation": [
+            0,
+            180,
+            0
+          ],
+          "color": "#fffbe6",
+          "intensity": 2,
+          "distance": 6,
+          "showSphere": true
+        }
       ]
     },
     "roads/road-bend": {
@@ -251,8 +290,8 @@
           },
           "nextAttractors": [],
           "directions": [
-            0,
-            90
+            90,
+            180
           ]
         },
         {
@@ -266,8 +305,28 @@
           "nextAttractors": [],
           "directions": [
             0,
-            270
+            90
           ]
+        }
+      ],
+      "lights": [
+        {
+          "id": "c17557f4",
+          "lampModel": "light-curved",
+          "position": [
+            0,
+            0,
+            -0.45
+          ],
+          "rotation": [
+            0,
+            180,
+            0
+          ],
+          "color": "#fffbe6",
+          "intensity": 2,
+          "distance": 6,
+          "showSphere": true
         }
       ]
     },
@@ -333,6 +392,58 @@
             0,
             90
           ]
+        }
+      ],
+      "lights": [
+        {
+          "id": "6486f5f8",
+          "lampModel": "light-curved",
+          "position": [
+            0,
+            0,
+            0.45
+          ],
+          "rotation": 0,
+          "color": "#fffbe6",
+          "intensity": 2,
+          "distance": 6,
+          "showSphere": true
+        },
+        {
+          "id": "7bd7d41f",
+          "lampModel": "light-curved",
+          "position": [
+            0,
+            0,
+            -0.45
+          ],
+          "rotation": [
+            0,
+            180,
+            0
+          ],
+          "color": "#fffbe6",
+          "intensity": 2,
+          "distance": 6,
+          "showSphere": true
+        },
+        {
+          "id": "ed27d0cc",
+          "lampModel": "light-curved",
+          "position": [
+            -0.45,
+            0,
+            0
+          ],
+          "rotation": [
+            0,
+            -90,
+            0
+          ],
+          "color": "#fffbe6",
+          "intensity": 2,
+          "distance": 6,
+          "showSphere": true
         }
       ]
     },
@@ -506,6 +617,46 @@
             90
           ]
         }
+      ],
+      "lights": [
+        {
+          "id": "db6de82c",
+          "lampModel": "light-curved",
+          "position": [
+            0.45,
+            0,
+            0
+          ],
+          "rotation": [
+            0,
+            90,
+            0
+          ],
+          "color": "#fffbe6",
+          "intensity": 2,
+          "distance": 6,
+          "showSphere": true,
+          "scale": 1
+        },
+        {
+          "id": "692709e2",
+          "lampModel": "light-curved",
+          "position": [
+            0,
+            0,
+            -0.45
+          ],
+          "rotation": [
+            0,
+            -180,
+            0
+          ],
+          "color": "#fffbe6",
+          "intensity": 2,
+          "distance": 6,
+          "showSphere": true,
+          "scale": 1
+        }
       ]
     },
     "roads/road-crossing": {
@@ -556,6 +707,45 @@
             180
           ],
           "crossingDirections": []
+        }
+      ],
+      "lights": [
+        {
+          "id": "705055c9",
+          "lampModel": "light-curved",
+          "position": [
+            0,
+            0,
+            0.45
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "color": "#fffbe6",
+          "intensity": 2,
+          "distance": 6,
+          "showSphere": true,
+          "scale": 1
+        },
+        {
+          "id": "08a94156",
+          "lampModel": "light-curved",
+          "position": [
+            0,
+            0,
+            -0.45
+          ],
+          "rotation": [
+            0,
+            180,
+            0
+          ],
+          "color": "#fffbe6",
+          "intensity": 2,
+          "distance": 6,
+          "showSphere": true
         }
       ]
     },
@@ -1209,7 +1399,8 @@
       "lightRadius": 0,
       "lightColor": "#fffbe6",
       "lightOnByDefault": true,
-      "attractors": []
+      "attractors": [],
+      "lights": []
     },
     "characters/cube_guy": {
       "name": "cube_guy",
@@ -1300,6 +1491,34 @@
       "lightColor": "#fffbe6",
       "lightOnByDefault": true,
       "speed": 0.25
+    },
+    "props/traffic-light": {
+      "name": "traffic-light",
+      "pack": "props",
+      "modelType": "prop",
+      "rotation": 0,
+      "scale": 1,
+      "offsetY": 0,
+      "speed": 1,
+      "gridW": 1,
+      "gridD": 1,
+      "roadConnectLeft": false,
+      "roadConnectRight": false,
+      "roadConnectFront": false,
+      "roadConnectBack": false,
+      "roadType": "none",
+      "isTerminal": false,
+      "tags": [],
+      "notes": "",
+      "frontDir": "none",
+      "height": "low",
+      "actualHeight": 1,
+      "actualWidth": 1,
+      "actualDepth": 1,
+      "foundation": "none",
+      "foundationScale": 1,
+      "foundationOffsetY": 0,
+      "lights": []
     }
   }
 }

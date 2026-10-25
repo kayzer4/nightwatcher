@@ -21,7 +21,7 @@ export interface AttractorConfig {
   id: string;
   type: AttractorType;
   position: { x: number; y: number; z: number };
-  rotation?: number;
+  rotation?: number | [number, number, number];
   directions?: number[];
   crossingDirections?: number[];
   conditions?: AttractorCondition[];
@@ -109,9 +109,17 @@ export interface ModelConfig {
   foundation: "none" | "low" | "high";
   foundationScale: number;
   foundationOffsetY: number;
-  lightRadius: number;
-  lightColor: string;
-  lightOnByDefault: boolean;
+  lights?: {
+    id: string;
+    position: [number, number, number];
+    rotation?: number | [number, number, number];
+    lampModel?: string;
+    color: string;
+    intensity: number;
+    distance: number;
+    showSphere: boolean;
+    scale?: number;
+  }[];
   attractors?: AttractorConfig[];
 }
 
@@ -129,6 +137,17 @@ export interface CityObject {
   connLeft: boolean;
   connFront: boolean;
   frontDir?: "left" | "right" | "front" | "back" | "none";
+  lights?: {
+    id: string;
+    position: [number, number, number];
+    rotation?: number | [number, number, number];
+    lampModel?: string;
+    color: string;
+    intensity: number;
+    distance: number;
+    showSphere: boolean;
+    scale?: number;
+  }[];
 }
 
 type ConnDir = [boolean, boolean, boolean, boolean];
@@ -166,8 +185,8 @@ function getModelConns(cfg: ModelConfig): ConnDir {
   return [cfg.roadConnectRight, cfg.roadConnectBack, cfg.roadConnectLeft, cfg.roadConnectFront];
 }
 
-function findRoadModel(need: ConnDir, modelConfigs: Record<string, ModelConfig>): { model: string; rotation: number; scale: number; rotSteps: number } | null {
-  const candidates: { model: string; rotation: number; scale: number; rotSteps: number }[] = [];
+function findRoadModel(need: ConnDir, modelConfigs: Record<string, ModelConfig>): { model: string; rotation: number; scale: number; rotSteps: number; lights?: ModelConfig['lights'] } | null {
+  const candidates: { model: string; rotation: number; scale: number; rotSteps: number; lights?: ModelConfig['lights'] }[] = [];
 
   for (const [, cfg] of Object.entries(modelConfigs)) {
     if (cfg.modelType !== "road" || cfg.roadType === "none") continue;
@@ -179,8 +198,9 @@ function findRoadModel(need: ConnDir, modelConfigs: Record<string, ModelConfig>)
         candidates.push({
           model: cfg.name,
           rotation: -rot * Math.PI / 2 + (cfg.rotation || 0),
-      scale: cfg.scale || 1,
+          scale: cfg.scale || 1,
           rotSteps: rot,
+          lights: cfg.lights,
         });
       }
     }
@@ -190,8 +210,8 @@ function findRoadModel(need: ConnDir, modelConfigs: Record<string, ModelConfig>)
   return candidates[Math.floor(Math.random() * candidates.length)];
 }
 
-function getBuildingCandidates(modelConfigs: Record<string, ModelConfig>): { model: string; pack: string; scale: number }[] {
-  const candidates: { model: string; pack: string; scale: number }[] = [];
+function getBuildingCandidates(modelConfigs: Record<string, ModelConfig>): { model: string; pack: string; scale: number; lights?: ModelConfig['lights'] }[] {
+  const candidates: { model: string; pack: string; scale: number; lights?: ModelConfig['lights'] }[] = [];
 
   for (const [, cfg] of Object.entries(modelConfigs)) {
     if (cfg.modelType === "road" || cfg.modelType === "tile" || cfg.modelType === "character") continue;
@@ -201,6 +221,7 @@ function getBuildingCandidates(modelConfigs: Record<string, ModelConfig>): { mod
       model: cfg.name,
       pack: cfg.pack,
       scale: cfg.scale || 1,
+      lights: cfg.lights,
     });
   }
 
@@ -365,6 +386,7 @@ export class CityGenerator {
           rotation: 0, gridW: 1, gridD: 1, scale: cellSize,
           connRight: false, connBack: false, connLeft: false, connFront: false,
           frontDir: this.findNearestRoadDir(gx, gz),
+          lights: cand.lights,
         });
       }
     }
@@ -416,6 +438,7 @@ export class CityGenerator {
       connBack: localConns[1],
       connLeft: localConns[2],
       connFront: localConns[3],
+      lights: match?.lights,
     });
     this.placeAttractorsForCell(x, z, cellSize, halfX, halfZ, match?.rotation || 0, match?.model || "road-crossroad");
   }
@@ -445,7 +468,7 @@ export class CityGenerator {
         id: `${gx}_${gz}:${a.id}`,
         type: a.type,
         position: [wx, (a.position.y ?? 0.1) - 0.05, wz],
-        rotation: objectRotation + (a.rotation || 0),
+        rotation: objectRotation + (typeof a.rotation === "number" ? a.rotation : (a.rotation?.[1] ?? 0)),
         next: [],
         conditions: a.conditions,
         duration: a.duration,

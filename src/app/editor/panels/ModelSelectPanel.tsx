@@ -19,12 +19,12 @@ export function ModelSelectPanel({ selectedPack, selectedModel, models, configs,
         showSearch
         optionFilterProp="label"
         options={models
-          .filter((m) => !m.startsWith("light-"))
           .map((m) => {
             const cfg = configs[`${selectedPack}/${m}`];
             const isRoad = cfg && (cfg.roadConnectLeft || cfg.roadConnectRight || cfg.roadConnectFront || cfg.roadConnectBack || cfg.roadType !== "none");
             const isBuilding = cfg && cfg.modelType === "building";
-            const configured = isRoad || isBuilding;
+            const isLamp = cfg && (cfg.tags?.includes("lamp") || (cfg.lights && cfg.lights.length > 0));
+            const configured = isRoad || isBuilding || isLamp;
             return {
               label: (
                 <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "2px 0" }}>

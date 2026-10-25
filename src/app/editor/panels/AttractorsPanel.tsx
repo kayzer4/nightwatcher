@@ -3,7 +3,7 @@ import { Button, Card, Row, Col, InputNumber, Switch, Space, Tag, Typography } f
 import { PlusOutlined, DeleteOutlined } from "@ant-design/icons";
 import type { AttractorConfig, AttractorType } from "@/shared/engine/CityGenerator";
 import { ATTRACTOR_COLORS, DIRECTION_DEGREES } from "@/shared/engine/CityGenerator";
-import { l, ATTRACTOR_TYPES, ACTIVITY_TYPES, DIR_GLYPH, COMPASS_ORDER } from "../constants";
+import { l, ATTRACTOR_TYPES, ACTIVITY_TYPES, DIR_GLYPH, COMPASS_ORDER, parseRotation } from "../constants";
 
 const { Text } = Typography;
 
@@ -100,6 +100,29 @@ export function AttractorsPanel({
               </Col>
             </Row>
           </div>
+
+          {(() => {
+            const rot = parseRotation(a.rotation);
+            return (
+              <div style={{ marginBottom: 8 }}>
+                <label style={l}>Поворот (X / Y / Z)</label>
+                <Row gutter={4}>
+                  <Col span={8}>
+                    <div style={{ fontSize: 10, color: "#666" }}>X°</div>
+                    <InputNumber size="small" step={5} value={rot[0]} onChange={(v) => updateAttractor(a.id, { rotation: [v ?? 0, rot[1], rot[2]] })} style={{ width: "100%" }} />
+                  </Col>
+                  <Col span={8}>
+                    <div style={{ fontSize: 10, color: "#666" }}>Y°</div>
+                    <InputNumber size="small" step={5} value={rot[1]} onChange={(v) => updateAttractor(a.id, { rotation: [rot[0], v ?? 0, rot[2]] })} style={{ width: "100%" }} />
+                  </Col>
+                  <Col span={8}>
+                    <div style={{ fontSize: 10, color: "#666" }}>Z°</div>
+                    <InputNumber size="small" step={5} value={rot[2]} onChange={(v) => updateAttractor(a.id, { rotation: [rot[0], rot[1], v ?? 0] })} style={{ width: "100%" }} />
+                  </Col>
+                </Row>
+              </div>
+            );
+          })()}
 
           <div style={{ marginBottom: 8 }}>
             <label style={l}>Размер куба</label>

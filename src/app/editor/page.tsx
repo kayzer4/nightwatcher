@@ -1,11 +1,11 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { Layout, Collapse, Button, Divider, ConfigProvider, theme, Typography, Segmented } from "antd";
 import { DownloadOutlined, SettingOutlined, AimOutlined, DeploymentUnitOutlined, HomeOutlined, UserOutlined } from "@ant-design/icons";
 import type { AttractorConfig, AttractorType } from "@/shared/engine/CityGenerator";
 import { DIRECTION_DEGREES } from "@/shared/engine/CityGenerator";
-import { type EditorMode, type ModelConfig, type Side, DEFAULT_CONFIG, ROAD_TYPES } from "./constants";
+import { type EditorMode, type ModelConfig, type Side, type LightConfig, type GizmoMode, DEFAULT_CONFIG, ROAD_TYPES } from "./constants";
 import { ModelSelectPanel } from "./panels/ModelSelectPanel";
 import { RoadPanel } from "./panels/RoadPanel";
 import { BuildingPanel } from "./panels/BuildingPanel";
@@ -13,6 +13,7 @@ import { CharacterPanel } from "./panels/CharacterPanel";
 import { AttractorsPanel } from "./panels/AttractorsPanel";
 import { TransformPanel } from "./panels/TransformPanel";
 import { TagsPanel } from "./panels/TagsPanel";
+import { LightsPanel } from "./panels/LightsPanel";
 import { ConfigCard } from "./panels/ConfigCard";
 import { SceneSection } from "./SceneSection";
 
@@ -36,8 +37,39 @@ export default function ModelEditorPage() {
   const [animPlaying, setAnimPlaying] = useState(true);
   const [animSpeed, setAnimSpeed] = useState(1);
   const [animKey, setAnimKey] = useState(0);
+  const [siderWidth, setSiderWidth] = useState(400);
+  const [selectedLightId, setSelectedLightId] = useState<string | null>(null);
+  const [gizmoMode, setGizmoMode] = useState<GizmoMode>("translate");
+  const isResizing = useRef(false);
+
+  const undoStack = useRef<Record<string, ModelConfig>[]>([]);
+  const redoStack = useRef<Record<string, ModelConfig>[]>([]);
+  const [historyCount, setHistoryCount] = useState({ undo: 0, redo: 0 });
+  const isDraggingGizmo = useRef(false);
+  const snapshotBeforeDrag = useRef<Record<string, ModelConfig> | null>(null);
 
   useEffect(() => { setMounted(true); }, []);
+
+  useEffect(() => {
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!isResizing.current) return;
+      // Sider is on the left, so clientX corresponds to the new width
+      const newWidth = Math.max(300, Math.min(e.clientX, 800));
+      setSiderWidth(newWidth);
+    };
+    const handleMouseUp = () => {
+      if (!isResizing.current) return;
+      isResizing.current = false;
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+    };
+    window.addEventListener("mousemove", handleMouseMove);
+    window.addEventListener("mouseup", handleMouseUp);
+    return () => {
+      window.removeEventListener("mousemove", handleMouseMove);
+      window.removeEventListener("mouseup", handleMouseUp);
+    };
+  }, []);
 
   useEffect(() => {
     fetch("/api/models").then((r) => r.json()).then((data) => {
@@ -60,6 +92,7 @@ export default function ModelEditorPage() {
     if (pack) {
       setSelectedPack(pack.name);
       if (pack.models.length) setSelectedModel(pack.models[0]);
+      else setSelectedModel("");
     }
     setCollapseActiveKeys(
       newMode === "road" ? ["select", "road"] : newMode === "building" ? ["select", "building"] : ["select", "character"],
@@ -89,7 +122,54 @@ export default function ModelEditorPage() {
     return { name: selectedModel, pack: selectedPack, modelType, ...DEFAULT_CONFIG };
   };
 
+  const configsRef = useRef(configs);
+  configsRef.current = configs;
+
+  const pushUndoSnapshot = useCallback(() => {
+    undoStack.current.push(configsRef.current);
+    if (undoStack.current.length > 50) {
+      undoStack.current.shift();
+    }
+    redoStack.current = [];
+    setHistoryCount({ undo: undoStack.current.length, redo: 0 });
+  }, []);
+
+  const handleUndo = useCallback(() => {
+    if (undoStack.current.length === 0) return;
+    const previous = undoStack.current.pop()!;
+    redoStack.current.push(configsRef.current);
+    setConfigs(previous);
+    setHistoryCount({ undo: undoStack.current.length, redo: redoStack.current.length });
+  }, []);
+
+  const handleRedo = useCallback(() => {
+    if (redoStack.current.length === 0) return;
+    const next = redoStack.current.pop()!;
+    undoStack.current.push(configsRef.current);
+    setConfigs(next);
+    setHistoryCount({ undo: undoStack.current.length, redo: redoStack.current.length });
+  }, []);
+
+  const handleDragStart = useCallback(() => {
+    isDraggingGizmo.current = true;
+    snapshotBeforeDrag.current = configsRef.current;
+  }, []);
+
+  const handleDragEnd = useCallback(() => {
+    if (isDraggingGizmo.current && snapshotBeforeDrag.current) {
+      undoStack.current.push(snapshotBeforeDrag.current);
+      if (undoStack.current.length > 50) undoStack.current.shift();
+      redoStack.current = [];
+      setHistoryCount({ undo: undoStack.current.length, redo: 0 });
+      snapshotBeforeDrag.current = null;
+    }
+    isDraggingGizmo.current = false;
+  }, []);
+
   const updateConfig = (updates: Partial<ModelConfig>) => {
+    if (!isDraggingGizmo.current) {
+      pushUndoSnapshot();
+    }
     const current = getConfig();
     setConfigs((prev) => ({ ...prev, [configKey]: { ...current, ...updates } }));
   };
@@ -167,8 +247,19 @@ export default function ModelEditorPage() {
     selectAttractor(id);
   };
 
-  const moveAttractor = (id: string, x: number, z: number) => {
-    setAttractors(getAttractors().map((a) => (a.id === id ? { ...a, position: { ...a.position, x, z } } : a)));
+  const moveAttractor = (id: string, x: number, y: number, z: number, rotation?: number | [number, number, number], scale?: number) => {
+    setAttractors(
+      getAttractors().map((a) =>
+        a.id === id
+          ? {
+              ...a,
+              position: { ...a.position, x, y: y !== undefined ? y : a.position.y, z },
+              ...(rotation !== undefined ? { rotation } : {}),
+              ...(scale !== undefined ? { scale } : {}),
+            }
+          : a,
+      ),
+    );
   };
 
   const deleteAttractor = (id: string) => {
@@ -183,7 +274,17 @@ export default function ModelEditorPage() {
     return () => window.removeEventListener("keydown", onKey);
   }, [placing]);
 
-  useEffect(() => { setSelectedAttractorId(null); }, [configKey]);
+  useEffect(() => {
+    setSelectedAttractorId(null);
+    setSelectedLightId(null);
+  }, [configKey]);
+
+  const updateLight = (id: string, updates: Partial<LightConfig>) => {
+    const lights = config.lights || [];
+    updateConfig({
+      lights: lights.map((l) => (l.id === id ? { ...l, ...updates } : l)),
+    });
+  };
 
   const config = getConfig();
   // Derived: fall back to Idle (or first clip) when nothing valid is selected
@@ -278,6 +379,18 @@ export default function ModelEditorPage() {
       ),
     }] : []),
     {
+      key: "lights",
+      label: <span style={{ color: "#fff" }}><SettingOutlined /> Освещение ({config.lights?.length || 0})</span>,
+      children: (
+        <LightsPanel
+          config={config}
+          updateConfig={updateConfig}
+          selectedLightId={selectedLightId}
+          onSelectLight={setSelectedLightId}
+        />
+      ),
+    },
+    {
       key: "transform",
       label: <span style={{ color: "#fff" }}><SettingOutlined /> Трансформ</span>,
       children: <TransformPanel config={config} updateConfig={updateConfig} rotDeg={rotDeg} />,
@@ -293,7 +406,7 @@ export default function ModelEditorPage() {
     <ConfigProvider theme={{ algorithm: theme.darkAlgorithm, token: { colorPrimary: "#faad14", colorBgContainer: "#1f1f1f", colorBgElevated: "#262626", colorText: "#e8e8e8", colorTextSecondary: "#999", colorBorder: "#303030" } }}>
       <style>{`*::-webkit-scrollbar{display:none}*{scrollbar-width:none}`}</style>
       <Layout style={{ height: "100vh", background: "#0a0a0a" }}>
-        <Sider width={400} theme="dark" style={{ background: "#141414", borderRight: "1px solid #303030", overflow: "auto" }}>
+        <Sider width={siderWidth} theme="dark" style={{ background: "#141414", borderRight: "1px solid #303030", overflow: "auto" }}>
           <div style={{ padding: 20 }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
               <Title level={4} style={{ margin: 0, color: "#faad14" }}>Редактор моделей</Title>
@@ -315,6 +428,22 @@ export default function ModelEditorPage() {
             <ConfigCard config={config} connCount={connCount} />
           </div>
         </Sider>
+        
+        <div
+          onMouseDown={() => {
+            isResizing.current = true;
+            document.body.style.cursor = "col-resize";
+            document.body.style.userSelect = "none";
+          }}
+          style={{
+            width: 4,
+            cursor: "col-resize",
+            backgroundColor: "transparent",
+            zIndex: 10,
+            position: "relative",
+            left: -2,
+          }}
+        />
 
         <SceneSection
           mode={mode}
@@ -332,6 +461,17 @@ export default function ModelEditorPage() {
           animSpeed={animSpeed}
           animKey={animKey}
           onAnimations={setAnimList}
+          selectedLightId={selectedLightId}
+          onSelectLight={setSelectedLightId}
+          onUpdateLight={updateLight}
+          gizmoMode={gizmoMode}
+          onGizmoModeChange={setGizmoMode}
+          canUndo={historyCount.undo > 0}
+          canRedo={historyCount.redo > 0}
+          onUndo={handleUndo}
+          onRedo={handleRedo}
+          onDragStart={handleDragStart}
+          onDragEnd={handleDragEnd}
         />
       </Layout>
     </ConfigProvider>
