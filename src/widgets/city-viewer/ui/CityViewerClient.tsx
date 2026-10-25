@@ -183,8 +183,8 @@ export function extractWorldLamps(objects: CityObject[], cellSize: number): Worl
       p.applyEuler(tileEuler);
       p.add(tilePos);
 
-      // Compute world direction vector of the spotlight beam
-      const localDir = new THREE.Vector3(0, -0.63, isDoubleOrCross ? 0 : -0.08).normalize();
+      // Compute world direction vector of the spotlight beam: pointing straight down for full 360-degree coverage
+      const localDir = new THREE.Vector3(0, -1, 0).normalize();
       localDir.applyEuler(lampEuler);
       localDir.applyEuler(tileEuler);
       localDir.normalize();
@@ -199,8 +199,8 @@ export function extractWorldLamps(objects: CityObject[], cellSize: number): Worl
         intensity: l.intensity ?? 3.5,
         distance: DEFAULT_VISUAL_LIGHT_DISTANCE,
         color: l.color || "#fff8e7",
-        angle: Math.PI / 2.3,
-        penumbra: 0.3,
+        angle: Math.PI / 2.02,
+        penumbra: 0.2,
       });
     }
   }
@@ -646,10 +646,10 @@ function NPCManager({
                   const coneFactor = THREE.MathUtils.clamp((cosTheta - cosOuter) / (cosInner - cosOuter), 0, 1);
                   const distFactor = Math.max(0, 1 - d / lamp.distance);
                   const intensity = lamp.intensity ?? 3.5;
-                  const effCone = Math.pow(coneFactor, 0.5);
+                  const effCone = Math.pow(coneFactor, 0.4);
                   lampContribution += distFactor * effCone * (intensity / 1.5) * lampMultiplier;
                 }
-              } else if (showLightRays && d < 12) {
+              } else if (showLightRays && d < lamp.distance) {
                 // Outside spotlight cone: show a subtle gray ray
                 rayPositions.push(lamp.pos.x, lamp.pos.y, lamp.pos.z, _npcChest.x, _npcChest.y, _npcChest.z);
                 rayColors.push(0.5, 0.5, 0.6, 0.5, 0.5, 0.6);
@@ -834,11 +834,10 @@ function RoadLampLight({
 }) {
   const target = useMemo(() => {
     const obj = new THREE.Object3D();
-    // At bulb height ~0.63 (approx 5m in world), -0.63 reaches the road level (Y = 0).
-    // Aiming slightly forward (-0.08 in local space) illuminates the roadway/sidewalk.
-    obj.position.set(0, -0.63, isDoubleOrCross ? 0 : -0.08);
+    // Aiming straight down illuminates symmetrically in all directions (street and sidewalks)
+    obj.position.set(0, -1, 0);
     return obj;
-  }, [isDoubleOrCross]);
+  }, []);
 
   const intensity = (light.intensity ?? 3.5) * 3.0;
 
@@ -852,8 +851,8 @@ function RoadLampLight({
           color={light.color || "#fff8e7"}
           intensity={intensity}
           distance={visualDistance}
-          angle={Math.PI / 2.3}
-          penumbra={0.3}
+          angle={Math.PI / 2.02}
+          penumbra={0.2}
           decay={1.2}
         />
       )}
