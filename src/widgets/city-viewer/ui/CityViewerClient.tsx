@@ -199,8 +199,8 @@ export function extractWorldLamps(objects: CityObject[], cellSize: number): Worl
         intensity: l.intensity ?? 3.5,
         distance: DEFAULT_VISUAL_LIGHT_DISTANCE,
         color: l.color || "#fff8e7",
-        angle: Math.PI / 2.5,
-        penumbra: 0.35,
+        angle: (80 * Math.PI) / 180,
+        penumbra: 0.25,
       });
     }
   }
@@ -815,7 +815,7 @@ function LampMesh({ model }: { model: string }) {
   return <primitive object={sceneClone} />;
 }
 
-export const DEFAULT_VISUAL_LIGHT_DISTANCE = 14.0;
+export const DEFAULT_VISUAL_LIGHT_DISTANCE = 16.0;
 
 function RoadLampLight({
   light,
@@ -849,8 +849,8 @@ function RoadLampLight({
           color={light.color || "#fff8e7"}
           intensity={intensity}
           distance={visualDistance}
-          angle={Math.PI / 2.5}
-          penumbra={0.35}
+          angle={(80 * Math.PI) / 180}
+          penumbra={0.25}
           decay={1.2}
         />
       )}
