@@ -142,7 +142,7 @@ export interface WorldLamp {
   color: string;
 }
 
-export function extractWorldLamps(objects: CityObject[], cellSize: number, lampBrightness = 22): WorldLamp[] {
+export function extractWorldLamps(objects: CityObject[], cellSize: number): WorldLamp[] {
   const lamps: WorldLamp[] = [];
   for (const obj of objects) {
     if (!obj.lights || obj.lights.length === 0) continue;
@@ -185,7 +185,7 @@ export function extractWorldLamps(objects: CityObject[], cellSize: number, lampB
         id: lampId,
         cellKey,
         pos: p,
-        intensity: (l.intensity ? l.intensity / 2 : 1) * lampBrightness,
+        intensity: l.intensity ?? 3.5,
         distance: DEFAULT_LAMP_DISTANCE,
         color: l.color || "#fff8e7",
       });
@@ -581,8 +581,8 @@ function NPCManager({
                 continue;
               }
               const factor = 1 - d / lamp.distance;
-              const intensity = lamp.intensity ?? 22;
-              lampContribution += factor * (intensity / 18) * lampMultiplier;
+              const intensity = lamp.intensity ?? 3.5;
+              lampContribution += factor * (intensity / 2.5) * lampMultiplier;
             }
           }
         }
@@ -723,35 +723,37 @@ function LampMesh({ model }: { model: string }) {
   return <primitive object={sceneClone} />;
 }
 
+export const DEFAULT_VISUAL_LIGHT_DISTANCE = 18.0;
+
 function RoadLampLight({
   light,
   bulbOffset,
   isOn,
-  brightness = 22,
+  visualDistance = DEFAULT_VISUAL_LIGHT_DISTANCE,
 }: {
   light: any;
   bulbOffset: [number, number, number];
   isOn: boolean;
-  brightness?: number;
+  visualDistance?: number;
 }) {
-  const intensity = (light.intensity ? light.intensity / 2 : 1) * brightness;
+  const intensity = light.intensity ?? 3.5;
   return (
     <group position={bulbOffset}>
       {isOn && (
         <pointLight
           color={light.color || "#fff8e7"}
           intensity={intensity}
-          distance={DEFAULT_LAMP_DISTANCE}
-          decay={1.2}
+          distance={visualDistance}
+          decay={1.1}
         />
       )}
       {light.showSphere && (
         <mesh>
-          <sphereGeometry args={[0.07, 16, 16]} />
+          <sphereGeometry args={[0.06, 16, 16]} />
           <meshStandardMaterial
             color={isOn ? (light.color || "#fff8e7") : "#22252a"}
             emissive={isOn ? (light.color || "#ffea9f") : "#000000"}
-            emissiveIntensity={isOn ? 4.0 : 0}
+            emissiveIntensity={isOn ? 3.0 : 0}
             roughness={isOn ? 0.1 : 0.8}
           />
         </mesh>
@@ -766,14 +768,14 @@ function RoadModel({
   colliderKey,
   placedLampIds,
   onToggleLamp,
-  lampBrightness = 22,
+  visualDistance = DEFAULT_VISUAL_LIGHT_DISTANCE,
 }: {
   obj: CityObject;
   cellSize: number;
   colliderKey: string;
   placedLampIds: Set<string>;
   onToggleLamp: (id: string) => void;
-  lampBrightness?: number;
+  visualDistance?: number;
 }) {
   const gltf = useUncachedGLTF(`/models/${obj.pack}/${obj.model}.glb`);
   const outerRef = useRef<THREE.Group>(null);
@@ -875,7 +877,7 @@ function RoadModel({
               }}
             >
               {hasModel && <LampMesh model={l.lampModel!} />}
-              <RoadLampLight light={l} bulbOffset={bulbOffset} isOn={true} brightness={lampBrightness} />
+              <RoadLampLight light={l} bulbOffset={bulbOffset} isOn={true} visualDistance={visualDistance} />
               {/* Click target helper */}
               <mesh position={[0, 0.35, isDoubleOrCross ? 0 : -0.07]}>
                 <cylinderGeometry args={[0.16, 0.16, 0.75, 8]} />
@@ -1049,20 +1051,20 @@ export function CityViewerClient() {
     }
   }, [seed, modelConfigs]);
 
-  const [lampBrightness, setLampBrightness] = useState<number>(() => {
+  const [lampVisualDistance, setLampVisualDistance] = useState<number>(() => {
     if (typeof window !== "undefined") {
-      const saved = localStorage.getItem("nw_lampBrightness");
+      const saved = localStorage.getItem("nw_lampVisualDistance");
       if (saved) {
         const val = Number(saved);
         if (!isNaN(val) && val > 0) return val;
       }
     }
-    return 22;
+    return DEFAULT_VISUAL_LIGHT_DISTANCE;
   });
 
   const worldLamps = useMemo(() => {
-    return extractWorldLamps(objects, DEFAULT_CONFIG.cellSize, lampBrightness);
-  }, [objects, lampBrightness]);
+    return extractWorldLamps(objects, DEFAULT_CONFIG.cellSize);
+  }, [objects]);
 
   const buildingBoxes = useMemo(() => {
     return extractBuildingBoxes(objects, DEFAULT_CONFIG.cellSize);
@@ -1284,29 +1286,32 @@ export function CityViewerClient() {
               <span>Ход ночного времени (23:00 → 06:00)</span>
             </label>
 
-            {/* Lamp Brightness Control */}
+            {/* Visual Light Distance Control */}
             <div className="flex flex-col gap-1 text-[10px] text-white/60 bg-white/5 p-2 rounded-lg border border-white/10">
               <div className="flex justify-between items-center">
-                <span className="text-amber-200">💡 Сила света фонарей:</span>
-                <span className="text-amber-300 font-mono font-bold">{lampBrightness}</span>
+                <span className="text-amber-200">🏮 Дальность света в игре:</span>
+                <span className="text-amber-300 font-mono font-bold">{lampVisualDistance}м</span>
               </div>
               <input
                 type="range"
-                min={5}
-                max={60}
-                step={1}
-                value={lampBrightness}
+                min={10}
+                max={32}
+                step={0.5}
+                value={lampVisualDistance}
                 onChange={(e) => {
                   const val = Number(e.target.value);
-                  setLampBrightness(val);
-                  localStorage.setItem("nw_lampBrightness", String(val));
+                  setLampVisualDistance(val);
+                  localStorage.setItem("nw_lampVisualDistance", String(val));
                 }}
                 className="w-full accent-amber-400"
               />
               <div className="flex justify-between text-[9px] text-white/40">
-                <span>5 (тускло)</span>
-                <span>22 (стандарт)</span>
-                <span>60 (ярко)</span>
+                <span>10м</span>
+                <span>18м (дефолт)</span>
+                <span>32м</span>
+              </div>
+              <div className="text-[9px] text-white/40 italic">
+                * Визуальная дальность рендера. Не влияет на алгоритм расстановки (10.5м).
               </div>
             </div>
 
@@ -1494,7 +1499,7 @@ export function CityViewerClient() {
               colliderKey={`${obj.pack}-${i}`}
               placedLampIds={placedLampIds}
               onToggleLamp={toggleLampPlacement}
-              lampBrightness={lampBrightness}
+              visualDistance={lampVisualDistance}
             />
           ))}
         </Suspense>
