@@ -125,6 +125,7 @@ const _m = new THREE.Matrix4();
 const _buildingFitCache = new Map<string, number>();
 
 export interface WorldLamp {
+  id: string;
   pos: THREE.Vector3;
   intensity: number;
   distance: number;
@@ -144,7 +145,8 @@ export function extractWorldLamps(objects: CityObject[], cellSize: number): Worl
     const tilePos = new THREE.Vector3(obj.position[0], obj.position[1], obj.position[2]);
     const tileEuler = new THREE.Euler(obj.rotationX || 0, obj.rotation + frontRot, 0, "YXZ");
 
-    for (const l of obj.lights) {
+    for (let i = 0; i < obj.lights.length; i++) {
+      const l = obj.lights[i];
       const hasModel = l.lampModel && l.lampModel !== "none";
       const isDoubleOrCross = l.lampModel?.includes("double") || l.lampModel?.includes("cross");
       const bulbOffset = new THREE.Vector3(
@@ -166,7 +168,10 @@ export function extractWorldLamps(objects: CityObject[], cellSize: number): Worl
       p.applyEuler(tileEuler);
       p.add(tilePos);
 
+      const lampId = `${obj.position[0].toFixed(1)}_${obj.position[2].toFixed(1)}_${l.id || i}`;
+
       lamps.push({
+        id: lampId,
         pos: p,
         intensity: l.intensity ?? 2,
         distance: l.distance ?? 6,
@@ -702,28 +707,48 @@ function LampMesh({ model }: { model: string }) {
   return <primitive object={sceneClone} />;
 }
 
-function RoadLampLight({ light, bulbOffset }: { light: any; bulbOffset: [number, number, number] }) {
-  const lightRef = useRef<THREE.Group>(null);
-  useFrame(() => {
-    if (lightRef.current) {
-      lightRef.current.visible = timeGlobals.isNight;
-    }
-  });
-
+function RoadLampLight({
+  light,
+  bulbOffset,
+  isOn,
+}: {
+  light: any;
+  bulbOffset: [number, number, number];
+  isOn: boolean;
+}) {
   return (
-    <group ref={lightRef} position={bulbOffset} visible={false}>
-      <pointLight color={light.color} intensity={light.intensity} distance={light.distance} />
+    <group position={bulbOffset}>
+      {isOn && (
+        <pointLight color={light.color} intensity={light.intensity} distance={light.distance} />
+      )}
       {light.showSphere && (
         <mesh>
-          <sphereGeometry args={[0.035, 16, 16]} />
-          <meshBasicMaterial color={light.color} />
+          <sphereGeometry args={[0.045, 16, 16]} />
+          <meshStandardMaterial
+            color={isOn ? light.color : "#22252a"}
+            emissive={isOn ? light.color : "#000000"}
+            emissiveIntensity={isOn ? 1.5 : 0}
+            roughness={isOn ? 0.2 : 0.8}
+          />
         </mesh>
       )}
     </group>
   );
 }
 
-function RoadModel({ obj, cellSize, colliderKey }: { obj: CityObject; cellSize: number; colliderKey: string }) {
+function RoadModel({
+  obj,
+  cellSize,
+  colliderKey,
+  litLampIds,
+  onToggleLamp,
+}: {
+  obj: CityObject;
+  cellSize: number;
+  colliderKey: string;
+  litLampIds: Set<string>;
+  onToggleLamp: (id: string) => void;
+}) {
   const gltf = useUncachedGLTF(`/models/${obj.pack}/${obj.model}.glb`);
   const outerRef = useRef<THREE.Group>(null);
   const colliderRegistered = useRef(false);
@@ -799,10 +824,34 @@ function RoadModel({ obj, cellSize, colliderKey }: { obj: CityObject; cellSize: 
             : [0, ((l.rotation || 0) * Math.PI) / 180, 0] as [number, number, number];
 
           const s = l.scale || 1;
+          const lampId = `${obj.position[0].toFixed(1)}_${obj.position[2].toFixed(1)}_${l.id || i}`;
+          const isOn = litLampIds.has(lampId);
+
           return (
-            <group key={l.id || i} position={[l.position[0], l.position[1], l.position[2]]} rotation={rot} scale={[s, s, s]}>
+            <group
+              key={lampId}
+              position={[l.position[0], l.position[1], l.position[2]]}
+              rotation={rot}
+              scale={[s, s, s]}
+              onClick={(e) => {
+                e.stopPropagation();
+                onToggleLamp(lampId);
+              }}
+              onPointerOver={(e) => {
+                e.stopPropagation();
+                document.body.style.cursor = "pointer";
+              }}
+              onPointerOut={() => {
+                document.body.style.cursor = "auto";
+              }}
+            >
               {hasModel && <LampMesh model={l.lampModel!} />}
-              <RoadLampLight light={l} bulbOffset={bulbOffset} />
+              <RoadLampLight light={l} bulbOffset={bulbOffset} isOn={isOn} />
+              {/* Click target helper to make selecting lamps easy and smooth */}
+              <mesh position={[0, 0.35, isDoubleOrCross ? 0 : -0.07]}>
+                <cylinderGeometry args={[0.16, 0.16, 0.75, 8]} />
+                <meshBasicMaterial transparent opacity={0} depthWrite={false} />
+              </mesh>
             </group>
           );
         })}
@@ -974,6 +1023,33 @@ export function CityViewerClient() {
   const worldLamps = useMemo(() => {
     return extractWorldLamps(objects, DEFAULT_CONFIG.cellSize);
   }, [objects]);
+
+  const [litLampIds, setLitLampIds] = useState<Set<string>>(() => new Set());
+
+  const toggleLamp = useCallback((id: string) => {
+    setLitLampIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
+
+  const turnAllLampsOn = useCallback(() => {
+    setLitLampIds(new Set(worldLamps.map((l) => l.id)));
+  }, [worldLamps]);
+
+  const turnAllLampsOff = useCallback(() => {
+    setLitLampIds(new Set());
+  }, []);
+
+  useEffect(() => {
+    setLitLampIds(new Set());
+  }, [objects]);
+
+  const activeWorldLamps = useMemo(() => {
+    return worldLamps.filter((l) => litLampIds.has(l.id));
+  }, [worldLamps, litLampIds]);
 
   const roadCount = objects.filter((o) => o.pack === "roads").length;
   const buildingCount = objects.filter((o) => o.pack === "Models").length;
@@ -1148,6 +1224,33 @@ export function CityViewerClient() {
               <span>Ход ночного времени (23:00 → 06:00)</span>
             </label>
 
+            {/* Lamp Toggle Controls */}
+            <div className="bg-white/5 rounded-lg p-2 text-[10px] space-y-1.5 border border-white/10 mt-1">
+              <div className="flex justify-between items-center">
+                <span className="text-[10px] uppercase tracking-wider text-amber-300/80 font-semibold">Управление фонарями</span>
+                <span className="font-mono text-xs font-bold text-amber-300">
+                  {litLampIds.size} / {worldLamps.length} вкл
+                </span>
+              </div>
+              <div className="text-[9px] text-white/50">
+                💡 Кликните по любому фонарю на карте, чтобы зажечь или погасить его
+              </div>
+              <div className="flex gap-1.5 pt-0.5">
+                <button
+                  onClick={turnAllLampsOn}
+                  className="flex-1 bg-amber-500/20 border border-amber-400/40 hover:bg-amber-500/30 text-amber-200 rounded px-1.5 py-1 text-[10px] transition-colors"
+                >
+                  ⚡ Включить все
+                </button>
+                <button
+                  onClick={turnAllLampsOff}
+                  className="flex-1 bg-white/5 border border-white/15 hover:bg-white/10 text-white/70 rounded px-1.5 py-1 text-[10px] transition-colors"
+                >
+                  🌑 Выключить все
+                </button>
+              </div>
+            </div>
+
             {/* Live Stats */}
             <div className="bg-white/5 rounded-lg p-2 text-[10px] space-y-1 border border-white/10 mt-1">
               <div className="text-[10px] uppercase tracking-wider text-amber-300/70 font-semibold mb-1">
@@ -1166,8 +1269,10 @@ export function CityViewerClient() {
                 </span>
               </div>
               <div className="flex justify-between">
-                <span className="text-white/60">🏮 Фонарей на карте:</span>
-                <span className="text-amber-200 font-mono font-bold">{worldLamps.length}</span>
+                <span className="text-white/60">🏮 Зажжено фонарей:</span>
+                <span className="text-amber-200 font-mono font-bold">
+                  {litLampIds.size} / {worldLamps.length}
+                </span>
               </div>
               <div className="flex justify-between">
                 <span className="text-white/60">Ср. освещенность:</span>
@@ -1236,7 +1341,14 @@ export function CityViewerClient() {
         </mesh>
         <Suspense fallback={<Loader />}>
           {objects.map((obj, i) => (
-            <RoadModel key={`${obj.model}-${i}`} obj={obj} cellSize={DEFAULT_CONFIG.cellSize} colliderKey={`${obj.pack}-${i}`} />
+            <RoadModel
+              key={`${obj.model}-${i}`}
+              obj={obj}
+              cellSize={DEFAULT_CONFIG.cellSize}
+              colliderKey={`${obj.pack}-${i}`}
+              litLampIds={litLampIds}
+              onToggleLamp={toggleLamp}
+            />
           ))}
         </Suspense>
         {attractors.map((attr) => (
@@ -1254,7 +1366,7 @@ export function CityViewerClient() {
             reviveAllNonce={reviveAllNonce}
             breakAccel={breakAccel}
             breakingEnabled={breakingEnabled}
-            worldLamps={worldLamps}
+            worldLamps={activeWorldLamps}
             showLightLevels={showLightLevels}
             onStatsUpdate={setLightStats}
           />
