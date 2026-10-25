@@ -199,7 +199,7 @@ export function extractWorldLamps(objects: CityObject[], cellSize: number): Worl
         intensity: l.intensity ?? 3.5,
         distance: DEFAULT_VISUAL_LIGHT_DISTANCE,
         color: l.color || "#fff8e7",
-        angle: (80 * Math.PI) / 180,
+        angle: (83 * Math.PI) / 180,
         penumbra: 0.25,
       });
     }
@@ -849,7 +849,7 @@ function RoadLampLight({
           color={light.color || "#fff8e7"}
           intensity={intensity}
           distance={visualDistance}
-          angle={(80 * Math.PI) / 180}
+          angle={(83 * Math.PI) / 180}
           penumbra={0.25}
           decay={1.2}
         />
