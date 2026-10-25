@@ -34,6 +34,7 @@ let _showAttractors = typeof window !== "undefined" && localStorage.getItem("nw_
 let _showNPCs = typeof window !== "undefined" && localStorage.getItem("nw_showNPCs") !== "false";
 let _showVectors = typeof window !== "undefined" && localStorage.getItem("nw_showVectors") === "true";
 let _showLightLevels = typeof window !== "undefined" ? localStorage.getItem("nw_showLightLevels") !== "false" : true;
+let _showLightRays = typeof window !== "undefined" && localStorage.getItem("nw_showLightRays") === "true";
 
 const FRONT_ROTATION: Record<string, number> = {
   front: 0,
@@ -137,9 +138,12 @@ export interface WorldLamp {
   id: string;
   cellKey: string;
   pos: THREE.Vector3;
+  dir: THREE.Vector3;
   intensity: number;
   distance: number;
   color: string;
+  angle: number;
+  penumbra: number;
 }
 
 export function extractWorldLamps(objects: CityObject[], cellSize: number): WorldLamp[] {
@@ -179,15 +183,24 @@ export function extractWorldLamps(objects: CityObject[], cellSize: number): Worl
       p.applyEuler(tileEuler);
       p.add(tilePos);
 
+      // Compute world direction vector of the spotlight beam
+      const localDir = new THREE.Vector3(0, -0.63, isDoubleOrCross ? 0 : -0.08).normalize();
+      localDir.applyEuler(lampEuler);
+      localDir.applyEuler(tileEuler);
+      localDir.normalize();
+
       const lampId = `${obj.position[0].toFixed(1)}_${obj.position[2].toFixed(1)}_${l.id || i}`;
 
       lamps.push({
         id: lampId,
         cellKey,
         pos: p,
+        dir: localDir,
         intensity: l.intensity ?? 3.5,
         distance: DEFAULT_LAMP_DISTANCE,
         color: l.color || "#fff8e7",
+        angle: Math.PI / 2.9,
+        penumbra: 0.65,
       });
     }
   }
@@ -402,7 +415,7 @@ const RAGDOLL_LIFETIME_MS = 15000; // auto-revive so the city never ends up perm
 
 function NPCManager({
   attractors, count, configs, dropAllNonce, reviveAllNonce, breakAccel, breakingEnabled,
-  worldLamps, showLightLevels, buildingBoxes, onStatsUpdate,
+  worldLamps, showLightLevels, showLightRays, buildingBoxes, onStatsUpdate,
 }: {
   attractors: PlacedAttractor[];
   count: number;
@@ -413,6 +426,7 @@ function NPCManager({
   breakingEnabled: boolean;
   worldLamps: WorldLamp[];
   showLightLevels: boolean;
+  showLightRays?: boolean;
   buildingBoxes: BuildingBox2D[];
   onStatsUpdate?: (stats: { lit: number; dark: number; total: number; avg: number }) => void;
 }) {
@@ -420,6 +434,7 @@ function NPCManager({
   const listRef = useRef<NPCInstance[]>([]);
   const mapRef = useRef<Map<string, PlacedAttractor>>(new Map());
   const groupRefs = useRef<(THREE.Group | null)[]>([]);
+  const debugLinesMeshRef = useRef<THREE.LineSegments>(null);
   const systemRef = useRef<RagdollSystem | null>(null);
   const breakAccelRef = useRef(breakAccel);
   const cityCollidersVersionRef = useRef(-1);
@@ -552,6 +567,15 @@ function NPCManager({
     const map = mapRef.current;
     const system = systemRef.current;
 
+    // Sync static building colliders before checking light occlusion
+    if (system) {
+      const cityVersion = getCityColliderVersion();
+      if (cityVersion !== cityCollidersVersionRef.current) {
+        cityCollidersVersionRef.current = cityVersion;
+        system.syncCityColliders();
+      }
+    }
+
     const dayFactor = timeGlobals.dayFactor ?? 1;
     const isNight = timeGlobals.isNight;
     const lampMultiplier = isNight ? 1 : THREE.MathUtils.clamp((0.7 - dayFactor) / 0.3, 0, 1);
@@ -560,6 +584,8 @@ function NPCManager({
     let litCount = 0;
     let totalLightSum = 0;
     const _npcChest = new THREE.Vector3();
+    const rayPositions: number[] = [];
+    const rayColors: number[] = [];
 
     for (let i = 0; i < list.length; i++) {
       const npc = list[i];
@@ -575,14 +601,51 @@ function NPCManager({
         let lampContribution = 0;
         if (lampMultiplier > 0 && worldLamps.length > 0) {
           for (const lamp of worldLamps) {
-            const d = _npcChest.distanceTo(lamp.pos);
+            const dx = _npcChest.x - lamp.pos.x;
+            const dy = _npcChest.y - lamp.pos.y;
+            const dz = _npcChest.z - lamp.pos.z;
+            const d = Math.sqrt(dx * dx + dy * dy + dz * dz);
             if (d < lamp.distance) {
-              if (buildingBoxes.length > 0 && isLightOccludedByBuildings(lamp.pos, _npcChest, buildingBoxes)) {
-                continue;
+              // 1. Spotlight cone angle check
+              const invD = 1 / d;
+              const rayDirX = dx * invD;
+              const rayDirY = dy * invD;
+              const rayDirZ = dz * invD;
+              const cosTheta = rayDirX * lamp.dir.x + rayDirY * lamp.dir.y + rayDirZ * lamp.dir.z;
+              const cosOuter = Math.cos(lamp.angle);
+
+              // Only if NPC is within the lamp cone
+              if (cosTheta > cosOuter) {
+                // 2. Physical 3D Raycast (Honest shadow test against buildings)
+                let isOccluded = false;
+                let hitDist = d;
+                if (system) {
+                  const occ = system.checkLightOcclusion(lamp.pos, _npcChest);
+                  isOccluded = occ.blocked;
+                  if (occ.hitDist != null) hitDist = occ.hitDist;
+                } else if (buildingBoxes.length > 0) {
+                  isOccluded = isLightOccludedByBuildings(lamp.pos, _npcChest, buildingBoxes);
+                }
+
+                if (showLightRays) {
+                  rayPositions.push(lamp.pos.x, lamp.pos.y, lamp.pos.z);
+                  if (isOccluded) {
+                    rayPositions.push(lamp.pos.x + rayDirX * hitDist, lamp.pos.y + rayDirY * hitDist, lamp.pos.z + rayDirZ * hitDist);
+                    rayColors.push(0.95, 0.25, 0.25, 0.95, 0.25, 0.25);
+                  } else {
+                    rayPositions.push(_npcChest.x, _npcChest.y, _npcChest.z);
+                    rayColors.push(0.3, 0.95, 0.35, 0.3, 0.95, 0.35);
+                  }
+                }
+
+                if (!isOccluded) {
+                  const cosInner = Math.cos(lamp.angle * (1 - lamp.penumbra));
+                  const coneFactor = THREE.MathUtils.clamp((cosTheta - cosOuter) / (cosInner - cosOuter), 0, 1);
+                  const distFactor = 1 - d / lamp.distance;
+                  const intensity = lamp.intensity ?? 3.5;
+                  lampContribution += distFactor * coneFactor * (intensity / 2.0) * lampMultiplier;
+                }
               }
-              const factor = 1 - d / lamp.distance;
-              const intensity = lamp.intensity ?? 3.5;
-              lampContribution += factor * (intensity / 2.5) * lampMultiplier;
             }
           }
         }
@@ -663,18 +726,9 @@ function NPCManager({
 
     if (!system) return;
 
-    // Reconcile static building/road colliders whenever the registry changed.
-    const cityVersion = getCityColliderVersion();
-    if (cityVersion !== cityCollidersVersionRef.current) {
-      cityCollidersVersionRef.current = cityVersion;
-      system.syncCityColliders();
-    }
-
     for (const npc of list) {
       if (npc.state === "ragdoll" && now - npc.downSince > RAGDOLL_LIFETIME_MS) reviveNpc(npc);
     }
-
-
 
     for (const npc of list) {
       if (npc.state === "alive") system.createAlive(npc.id, npc.pos.x, npc.pos.y, npc.pos.z, npc.height);
@@ -684,6 +738,17 @@ function NPCManager({
     for (const impact of impacts) {
       const npc = list.find((n) => n.id === impact.npcId);
       if (npc && npc.state === "alive") ragdollNpc(npc, impact.dir, Math.min(1.2, impact.speed));
+    }
+
+    if (debugLinesMeshRef.current) {
+      if (showLightRays && rayPositions.length > 0) {
+        debugLinesMeshRef.current.visible = true;
+        const geo = debugLinesMeshRef.current.geometry;
+        geo.setAttribute("position", new THREE.Float32BufferAttribute(rayPositions, 3));
+        geo.setAttribute("color", new THREE.Float32BufferAttribute(rayColors, 3));
+      } else {
+        debugLinesMeshRef.current.visible = false;
+      }
     }
 
     if (now - lastStatsReportRef.current > 250) {
@@ -709,6 +774,10 @@ function NPCManager({
           {showLightLevels && <NPCLightIndicator npc={npc} />}
         </group>
       ))}
+      <lineSegments ref={debugLinesMeshRef} visible={false}>
+        <bufferGeometry />
+        <lineBasicMaterial vertexColors transparent opacity={0.65} />
+      </lineSegments>
     </>
   );
 }
@@ -1052,6 +1121,7 @@ export function CityViewerClient() {
   const [timeHour, setTimeHour] = useState(23);
   const [autoTime, setAutoTime] = useState(false);
   const [showLightLevels, setShowLightLevels] = useState(_showLightLevels);
+  const [showLightRays, setShowLightRays] = useState(() => _showLightRays);
   const [lightStats, setLightStats] = useState({ lit: 0, dark: 0, total: 0, avg: 1 });
 
   useEffect(() => {
@@ -1244,6 +1314,19 @@ export function CityViewerClient() {
               className="w-4 h-4 accent-amber-400"
             />
             <span>Show Light Levels (NPC)</span>
+          </label>
+          <label className="flex items-center gap-2 cursor-pointer mb-1">
+            <input
+              type="checkbox"
+              checked={showLightRays}
+              onChange={(e) => {
+                setShowLightRays(e.target.checked);
+                _showLightRays = e.target.checked;
+                localStorage.setItem("nw_showLightRays", String(e.target.checked));
+              }}
+              className="w-4 h-4 accent-amber-500"
+            />
+            <span>Show Light Rays (Лучи света к NPC)</span>
           </label>
 
           {/* Time & Lighting Controls */}
@@ -1552,6 +1635,7 @@ export function CityViewerClient() {
             breakingEnabled={breakingEnabled}
             worldLamps={activeWorldLamps}
             showLightLevels={showLightLevels}
+            showLightRays={showLightRays}
             buildingBoxes={buildingBoxes}
             onStatsUpdate={setLightStats}
           />

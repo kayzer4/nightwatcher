@@ -171,6 +171,7 @@ export class RagdollSystem {
   private readonly alive = new Map<string, AliveBody>();
   private readonly colliderOwner = new Map<number, ColliderOwner>();
   private readonly cityColliders = new Map<string, RAPIER.Collider>();
+  private readonly buildingHandles = new Set<number>();
   private cityBody: RAPIER.RigidBody;
   private accumulator = 0;
 
@@ -205,6 +206,7 @@ export class RagdollSystem {
       if (!snapshot.some((b) => b.key === key)) {
         this.world.removeCollider(collider, false);
         this.cityColliders.delete(key);
+        this.buildingHandles.delete(collider.handle);
       }
     }
     for (const collider of snapshot) {
@@ -242,8 +244,56 @@ export class RagdollSystem {
           .setCollisionGroups(ENV_GROUPS);
       }
       if (!desc) continue;
-      this.cityColliders.set(collider.key, this.world.createCollider(desc, this.cityBody));
+      const col = this.world.createCollider(desc, this.cityBody);
+      this.cityColliders.set(collider.key, col);
+      if (isMesh || collider.key.startsWith("Models-")) {
+        this.buildingHandles.add(col.handle);
+      }
     }
+  }
+
+  /**
+   * Casts a physical 3D ray from the lamp bulb to a target (NPC chest/head)
+   * to determine if a building physically occludes the light ray.
+   */
+  checkLightOcclusion(
+    lampPos: { x: number; y: number; z: number },
+    targetPos: { x: number; y: number; z: number }
+  ): { blocked: boolean; hitDist?: number } {
+    const dx = targetPos.x - lampPos.x;
+    const dy = targetPos.y - lampPos.y;
+    const dz = targetPos.z - lampPos.z;
+    const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
+    if (dist < 1e-3) return { blocked: false };
+
+    const invDist = 1 / dist;
+    // Step 0.15m out from the bulb to avoid hitting the lamp post fixture
+    const startOffset = 0.15;
+    const ray = new RAPIER.Ray(
+      {
+        x: lampPos.x + dx * invDist * startOffset,
+        y: lampPos.y + dy * invDist * startOffset,
+        z: lampPos.z + dz * invDist * startOffset,
+      },
+      { x: dx * invDist, y: dy * invDist, z: dz * invDist }
+    );
+
+    // Stop 0.2m before reaching the NPC's center point
+    const maxToi = Math.max(0, dist - (startOffset + 0.1));
+    const hit = this.world.castRay(
+      ray,
+      maxToi,
+      true,
+      RAPIER.QueryFilterFlags.EXCLUDE_DYNAMIC
+    );
+
+    if (hit) {
+      if (this.buildingHandles.has(hit.collider.handle) || this.buildingHandles.size === 0) {
+        return { blocked: true, hitDist: hit.timeOfImpact + startOffset };
+      }
+    }
+
+    return { blocked: false };
   }
 
   get ragdollCount(): number {
