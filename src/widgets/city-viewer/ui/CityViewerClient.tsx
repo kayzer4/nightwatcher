@@ -19,6 +19,10 @@ import {
   greedySetCoverLamps,
   intersectionFirstLamps,
   criticalPathLamps,
+  extractBuildingBoxes,
+  isLightOccludedByBuildings,
+  DEFAULT_LAMP_DISTANCE,
+  type BuildingBox2D,
 } from "../lib/lamp-placement";
 
 const CONNECTOR_COLOR = "#52c41a";
@@ -131,6 +135,7 @@ const _buildingFitCache = new Map<string, number>();
 
 export interface WorldLamp {
   id: string;
+  cellKey: string;
   pos: THREE.Vector3;
   intensity: number;
   distance: number;
@@ -149,6 +154,7 @@ export function extractWorldLamps(objects: CityObject[], cellSize: number): Worl
 
     const tilePos = new THREE.Vector3(obj.position[0], obj.position[1], obj.position[2]);
     const tileEuler = new THREE.Euler(obj.rotationX || 0, obj.rotation + frontRot, 0, "YXZ");
+    const cellKey = `${Math.round(obj.position[0])}_${Math.round(obj.position[2])}`;
 
     for (let i = 0; i < obj.lights.length; i++) {
       const l = obj.lights[i];
@@ -177,9 +183,10 @@ export function extractWorldLamps(objects: CityObject[], cellSize: number): Worl
 
       lamps.push({
         id: lampId,
+        cellKey,
         pos: p,
-        intensity: l.intensity ?? 2,
-        distance: l.distance ?? 6,
+        intensity: l.intensity ?? 2.5,
+        distance: DEFAULT_LAMP_DISTANCE,
         color: l.color || "#fffbe6",
       });
     }
@@ -395,7 +402,7 @@ const RAGDOLL_LIFETIME_MS = 15000; // auto-revive so the city never ends up perm
 
 function NPCManager({
   attractors, count, configs, dropAllNonce, reviveAllNonce, breakAccel, breakingEnabled,
-  worldLamps, showLightLevels, onStatsUpdate,
+  worldLamps, showLightLevels, buildingBoxes, onStatsUpdate,
 }: {
   attractors: PlacedAttractor[];
   count: number;
@@ -406,6 +413,7 @@ function NPCManager({
   breakingEnabled: boolean;
   worldLamps: WorldLamp[];
   showLightLevels: boolean;
+  buildingBoxes: BuildingBox2D[];
   onStatsUpdate?: (stats: { lit: number; dark: number; total: number; avg: number }) => void;
 }) {
   const [npcList, setNpcList] = useState<NPCInstance[]>([]);
@@ -569,8 +577,11 @@ function NPCManager({
           for (const lamp of worldLamps) {
             const d = _npcChest.distanceTo(lamp.pos);
             if (d < lamp.distance) {
+              if (buildingBoxes.length > 0 && isLightOccludedByBuildings(lamp.pos, _npcChest, buildingBoxes)) {
+                continue;
+              }
               const factor = 1 - d / lamp.distance;
-              const intensity = lamp.intensity ?? 2;
+              const intensity = lamp.intensity ?? 2.5;
               lampContribution += factor * (intensity / 1.5) * lampMultiplier;
             }
           }
@@ -578,7 +589,7 @@ function NPCManager({
 
         const totalLevel = THREE.MathUtils.clamp(dayFactor * 0.95 + lampContribution + 0.03, 0, 1);
         npc.lightLevel = totalLevel;
-        npc.isLit = totalLevel >= 0.25;
+        npc.isLit = totalLevel >= 0.20;
         if (npc.isLit) litCount++;
         totalLightSum += totalLevel;
       }
@@ -724,7 +735,7 @@ function RoadLampLight({
   return (
     <group position={bulbOffset}>
       {isOn && (
-        <pointLight color={light.color} intensity={light.intensity} distance={light.distance} />
+        <pointLight color={light.color} intensity={light.intensity ?? 2.5} distance={DEFAULT_LAMP_DISTANCE} decay={2} />
       )}
       {light.showSphere && (
         <mesh>
@@ -1032,6 +1043,10 @@ export function CityViewerClient() {
     return extractWorldLamps(objects, DEFAULT_CONFIG.cellSize);
   }, [objects]);
 
+  const buildingBoxes = useMemo(() => {
+    return extractBuildingBoxes(objects, DEFAULT_CONFIG.cellSize);
+  }, [objects]);
+
   type PlacementMode = "greedy" | "intersection" | "path" | "all" | "none" | "custom";
   const [placementMode, setPlacementMode] = useState<PlacementMode>("greedy");
   const [placedLampIds, setPlacedLampIds] = useState<Set<string>>(() => new Set());
@@ -1040,18 +1055,18 @@ export function CityViewerClient() {
     (mode: PlacementMode) => {
       setPlacementMode(mode);
       if (mode === "greedy") {
-        setPlacedLampIds(greedySetCoverLamps(worldLamps, attractors));
+        setPlacedLampIds(greedySetCoverLamps(worldLamps, attractors, buildingBoxes));
       } else if (mode === "intersection") {
-        setPlacedLampIds(intersectionFirstLamps(worldLamps, objects, DEFAULT_CONFIG.cellSize));
+        setPlacedLampIds(intersectionFirstLamps(worldLamps, objects, attractors, buildingBoxes, DEFAULT_CONFIG.cellSize));
       } else if (mode === "path") {
-        setPlacedLampIds(criticalPathLamps(worldLamps, attractors));
+        setPlacedLampIds(criticalPathLamps(worldLamps, attractors, buildingBoxes));
       } else if (mode === "all") {
         setPlacedLampIds(new Set(worldLamps.map((l) => l.id)));
       } else if (mode === "none") {
         setPlacedLampIds(new Set());
       }
     },
-    [worldLamps, attractors, objects]
+    [worldLamps, attractors, objects, buildingBoxes]
   );
 
   const toggleLampPlacement = useCallback((id: string) => {
@@ -1069,7 +1084,7 @@ export function CityViewerClient() {
     if (worldLamps.length > 0) {
       applyPlacement(placementMode);
     }
-  }, [worldLamps, attractors, objects]);
+  }, [worldLamps, attractors, objects, buildingBoxes]);
 
   const activeWorldLamps = useMemo(() => {
     return worldLamps.filter((l) => placedLampIds.has(l.id));
@@ -1452,6 +1467,7 @@ export function CityViewerClient() {
             breakingEnabled={breakingEnabled}
             worldLamps={activeWorldLamps}
             showLightLevels={showLightLevels}
+            buildingBoxes={buildingBoxes}
             onStatsUpdate={setLightStats}
           />
         </Suspense>
