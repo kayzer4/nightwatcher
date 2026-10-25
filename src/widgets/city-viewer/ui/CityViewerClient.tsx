@@ -745,13 +745,13 @@ function RoadModel({
   obj,
   cellSize,
   colliderKey,
-  litLampIds,
+  placedLampIds,
   onToggleLamp,
 }: {
   obj: CityObject;
   cellSize: number;
   colliderKey: string;
-  litLampIds: Set<string>;
+  placedLampIds: Set<string>;
   onToggleLamp: (id: string) => void;
 }) {
   const gltf = useUncachedGLTF(`/models/${obj.pack}/${obj.model}.glb`);
@@ -830,7 +830,10 @@ function RoadModel({
 
           const s = l.scale || 1;
           const lampId = `${obj.position[0].toFixed(1)}_${obj.position[2].toFixed(1)}_${l.id || i}`;
-          const isOn = litLampIds.has(lampId);
+          const isPlaced = placedLampIds.has(lampId);
+
+          // Не спавним фонарь, если алгоритм не выделил это место
+          if (!isPlaced) return null;
 
           return (
             <group
@@ -851,8 +854,8 @@ function RoadModel({
               }}
             >
               {hasModel && <LampMesh model={l.lampModel!} />}
-              <RoadLampLight light={l} bulbOffset={bulbOffset} isOn={isOn} />
-              {/* Click target helper to make selecting lamps easy and smooth */}
+              <RoadLampLight light={l} bulbOffset={bulbOffset} isOn={true} />
+              {/* Click target helper */}
               <mesh position={[0, 0.35, isDoubleOrCross ? 0 : -0.07]}>
                 <cylinderGeometry args={[0.16, 0.16, 0.75, 8]} />
                 <meshBasicMaterial transparent opacity={0} depthWrite={false} />
@@ -1029,10 +1032,31 @@ export function CityViewerClient() {
     return extractWorldLamps(objects, DEFAULT_CONFIG.cellSize);
   }, [objects]);
 
-  const [litLampIds, setLitLampIds] = useState<Set<string>>(() => new Set());
+  type PlacementMode = "greedy" | "intersection" | "path" | "all" | "none" | "custom";
+  const [placementMode, setPlacementMode] = useState<PlacementMode>("greedy");
+  const [placedLampIds, setPlacedLampIds] = useState<Set<string>>(() => new Set());
 
-  const toggleLamp = useCallback((id: string) => {
-    setLitLampIds((prev) => {
+  const applyPlacement = useCallback(
+    (mode: PlacementMode) => {
+      setPlacementMode(mode);
+      if (mode === "greedy") {
+        setPlacedLampIds(greedySetCoverLamps(worldLamps, attractors));
+      } else if (mode === "intersection") {
+        setPlacedLampIds(intersectionFirstLamps(worldLamps, objects, DEFAULT_CONFIG.cellSize));
+      } else if (mode === "path") {
+        setPlacedLampIds(criticalPathLamps(worldLamps, attractors));
+      } else if (mode === "all") {
+        setPlacedLampIds(new Set(worldLamps.map((l) => l.id)));
+      } else if (mode === "none") {
+        setPlacedLampIds(new Set());
+      }
+    },
+    [worldLamps, attractors, objects]
+  );
+
+  const toggleLampPlacement = useCallback((id: string) => {
+    setPlacementMode("custom");
+    setPlacedLampIds((prev) => {
       const next = new Set(prev);
       if (next.has(id)) next.delete(id);
       else next.add(id);
@@ -1040,21 +1064,16 @@ export function CityViewerClient() {
     });
   }, []);
 
-  const turnAllLampsOn = useCallback(() => {
-    setLitLampIds(new Set(worldLamps.map((l) => l.id)));
-  }, [worldLamps]);
-
-  const turnAllLampsOff = useCallback(() => {
-    setLitLampIds(new Set());
-  }, []);
-
+  // Recalculate lamp placement when city or algorithm changes
   useEffect(() => {
-    setLitLampIds(new Set());
-  }, [objects]);
+    if (worldLamps.length > 0) {
+      applyPlacement(placementMode);
+    }
+  }, [worldLamps, attractors, objects]);
 
   const activeWorldLamps = useMemo(() => {
-    return worldLamps.filter((l) => litLampIds.has(l.id));
-  }, [worldLamps, litLampIds]);
+    return worldLamps.filter((l) => placedLampIds.has(l.id));
+  }, [worldLamps, placedLampIds]);
 
   const roadCount = objects.filter((o) => o.pack === "roads").length;
   const buildingCount = objects.filter((o) => o.pack === "Models").length;
@@ -1229,66 +1248,89 @@ export function CityViewerClient() {
               <span>Ход ночного времени (23:00 → 06:00)</span>
             </label>
 
-            {/* Lamp Toggle Controls */}
-            <div className="bg-white/5 rounded-lg p-2 text-[10px] space-y-1.5 border border-white/10 mt-1">
+            {/* Lamp Placement Controls */}
+            <div className="bg-white/5 rounded-lg p-2.5 text-[10px] space-y-2 border border-white/10 mt-1">
               <div className="flex justify-between items-center">
-                <span className="text-[10px] uppercase tracking-wider text-amber-300/80 font-semibold">Управление фонарями</span>
+                <span className="text-[10px] uppercase tracking-wider text-amber-300 font-semibold">
+                  Расстановка фонарей
+                </span>
                 <span className="font-mono text-xs font-bold text-amber-300">
-                  {litLampIds.size} / {worldLamps.length} вкл
+                  {placedLampIds.size} / {worldLamps.length}
                 </span>
               </div>
-              <div className="text-[9px] text-white/50">
-                💡 Кликните по любому фонарю на карте, чтобы зажечь или погасить его
-              </div>
-              <div className="flex gap-1.5 pt-0.5">
-                <button
-                  onClick={turnAllLampsOn}
-                  className="flex-1 bg-amber-500/20 border border-amber-400/40 hover:bg-amber-500/30 text-amber-200 rounded px-1.5 py-1 text-[10px] transition-colors"
-                >
-                  ⚡ Включить все
-                </button>
-                <button
-                  onClick={turnAllLampsOff}
-                  className="flex-1 bg-white/5 border border-white/15 hover:bg-white/10 text-white/70 rounded px-1.5 py-1 text-[10px] transition-colors"
-                >
-                  🌑 Выключить все
-                </button>
+              <div className="text-[9px] text-white/50 leading-tight">
+                Выберите алгоритм расстановки физических фонарей на улицах:
               </div>
 
               {/* 3 Abstract Algorithm Presets */}
-              <div className="pt-2 border-t border-white/10 space-y-1">
-                <div className="text-[9px] uppercase tracking-wider text-amber-200/60 font-semibold">
-                  Алгоритмы расстановки (Тест):
-                </div>
+              <div className="flex flex-col gap-1">
                 <button
-                  onClick={() => {
-                    const ids = greedySetCoverLamps(worldLamps, attractors);
-                    setLitLampIds(ids);
-                  }}
-                  className="w-full text-left bg-white/5 border border-white/10 hover:bg-amber-500/20 hover:border-amber-400/40 text-white/85 rounded px-2 py-1 text-[10px] transition-colors flex justify-between items-center"
+                  onClick={() => applyPlacement("greedy")}
+                  className={`w-full text-left rounded px-2 py-1.5 text-[10px] transition-all flex justify-between items-center border ${
+                    placementMode === "greedy"
+                      ? "bg-amber-500/30 border-amber-400 text-amber-100 font-semibold shadow-sm"
+                      : "bg-white/5 border-white/10 hover:bg-white/15 text-white/70"
+                  }`}
                 >
-                  <span>📐 1. Жадный Set Cover</span>
-                  <span className="text-[9px] text-amber-300 font-mono">Мин. фонарей</span>
+                  <span className="flex items-center gap-1.5">
+                    <span>📐</span>
+                    <span>1. Жадный Set Cover</span>
+                  </span>
+                  <span className="text-[9px] text-amber-300/80 font-mono">Минимум ламп</span>
+                </button>
+
+                <button
+                  onClick={() => applyPlacement("intersection")}
+                  className={`w-full text-left rounded px-2 py-1.5 text-[10px] transition-all flex justify-between items-center border ${
+                    placementMode === "intersection"
+                      ? "bg-amber-500/30 border-amber-400 text-amber-100 font-semibold shadow-sm"
+                      : "bg-white/5 border-white/10 hover:bg-white/15 text-white/70"
+                  }`}
+                >
+                  <span className="flex items-center gap-1.5">
+                    <span>🏛️</span>
+                    <span>2. Перекрестки + Ребра</span>
+                  </span>
+                  <span className="text-[9px] text-amber-300/80 font-mono">Городской</span>
+                </button>
+
+                <button
+                  onClick={() => applyPlacement("path")}
+                  className={`w-full text-left rounded px-2 py-1.5 text-[10px] transition-all flex justify-between items-center border ${
+                    placementMode === "path"
+                      ? "bg-amber-500/30 border-amber-400 text-amber-100 font-semibold shadow-sm"
+                      : "bg-white/5 border-white/10 hover:bg-white/15 text-white/70"
+                  }`}
+                >
+                  <span className="flex items-center gap-1.5">
+                    <span>🚶</span>
+                    <span>3. Маршруты (Spawn→Exit)</span>
+                  </span>
+                  <span className="text-[9px] text-amber-300/80 font-mono">Крит. путь</span>
+                </button>
+              </div>
+
+              {/* Utility actions */}
+              <div className="flex gap-1.5 pt-1 border-t border-white/10">
+                <button
+                  onClick={() => applyPlacement("all")}
+                  className={`flex-1 rounded px-1.5 py-1 text-[10px] transition-colors border ${
+                    placementMode === "all"
+                      ? "bg-amber-500/30 border-amber-400 text-amber-200"
+                      : "bg-white/5 border-white/15 hover:bg-white/10 text-white/60"
+                  }`}
+                >
+                  🌐 Все слоты
                 </button>
                 <button
-                  onClick={() => {
-                    const ids = intersectionFirstLamps(worldLamps, objects, DEFAULT_CONFIG.cellSize);
-                    setLitLampIds(ids);
-                  }}
-                  className="w-full text-left bg-white/5 border border-white/10 hover:bg-amber-500/20 hover:border-amber-400/40 text-white/85 rounded px-2 py-1 text-[10px] transition-colors flex justify-between items-center"
+                  onClick={() => applyPlacement("none")}
+                  className={`flex-1 rounded px-1.5 py-1 text-[10px] transition-colors border ${
+                    placementMode === "none"
+                      ? "bg-red-500/30 border-red-400 text-red-200"
+                      : "bg-white/5 border-white/15 hover:bg-white/10 text-white/60"
+                  }`}
                 >
-                  <span>🏛️ 2. Перекрестки + Ребра</span>
-                  <span className="text-[9px] text-amber-300 font-mono">Городской</span>
-                </button>
-                <button
-                  onClick={() => {
-                    const ids = criticalPathLamps(worldLamps, attractors);
-                    setLitLampIds(ids);
-                  }}
-                  className="w-full text-left bg-white/5 border border-white/10 hover:bg-amber-500/20 hover:border-amber-400/40 text-white/85 rounded px-2 py-1 text-[10px] transition-colors flex justify-between items-center"
-                >
-                  <span>🚶 3. Маршруты (Spawn→Exit)</span>
-                  <span className="text-[9px] text-amber-300 font-mono">Крит. путь</span>
+                  🚫 Без фонарей
                 </button>
               </div>
             </div>
@@ -1311,9 +1353,9 @@ export function CityViewerClient() {
                 </span>
               </div>
               <div className="flex justify-between">
-                <span className="text-white/60">🏮 Зажжено фонарей:</span>
+                <span className="text-white/60">🏮 Фонарей на карте:</span>
                 <span className="text-amber-200 font-mono font-bold">
-                  {litLampIds.size} / {worldLamps.length}
+                  {placedLampIds.size} / {worldLamps.length} ({worldLamps.length > 0 ? Math.round((placedLampIds.size / worldLamps.length) * 100) : 0}%)
                 </span>
               </div>
               <div className="flex justify-between">
@@ -1388,8 +1430,8 @@ export function CityViewerClient() {
               obj={obj}
               cellSize={DEFAULT_CONFIG.cellSize}
               colliderKey={`${obj.pack}-${i}`}
-              litLampIds={litLampIds}
-              onToggleLamp={toggleLamp}
+              placedLampIds={placedLampIds}
+              onToggleLamp={toggleLampPlacement}
             />
           ))}
         </Suspense>
