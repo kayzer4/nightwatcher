@@ -288,12 +288,16 @@ export class RagdollSystem {
     );
 
     if (hit) {
-      if (this.buildingHandles.has(hit.collider.handle) || this.buildingHandles.size === 0) {
+      if (this.buildingHandles.has(hit.collider.handle)) {
         return { blocked: true, hitDist: hit.timeOfImpact + startOffset };
       }
     }
 
     return { blocked: false };
+  }
+
+  get hasBuildingColliders(): boolean {
+    return this.buildingHandles.size > 0;
   }
 
   get ragdollCount(): number {

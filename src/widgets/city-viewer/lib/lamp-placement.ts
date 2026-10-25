@@ -125,9 +125,9 @@ export function greedySetCoverLamps(
 
   // Предрассчитываем для каждого фонаря покрываемые точки с учетом препятствий
   const lampCoverage = new Map<string, number[]>();
+  const r2 = DEFAULT_LAMP_DISTANCE * DEFAULT_LAMP_DISTANCE;
   for (const lamp of worldLamps) {
     const coveredIdxs: number[] = [];
-    const r2 = lamp.distance * lamp.distance;
     for (let i = 0; i < totalTargets; i++) {
       const tPos = targets[i].pos;
       if (lamp.pos.distanceToSquared(tPos) <= r2) {
@@ -197,8 +197,8 @@ export function intersectionFirstLamps(
   }));
   const targetCovered = new Uint8Array(targets.length);
 
+  const r2 = DEFAULT_LAMP_DISTANCE * DEFAULT_LAMP_DISTANCE;
   const markCoveredByLamp = (lamp: WorldLamp) => {
-    const r2 = lamp.distance * lamp.distance;
     for (let i = 0; i < targets.length; i++) {
       if (!targetCovered[i] && lamp.pos.distanceToSquared(targets[i].pos) <= r2) {
         if (!isLightOccludedByBuildings(lamp.pos, targets[i].pos, buildings)) {
@@ -230,7 +230,6 @@ export function intersectionFirstLamps(
       let maxCover = -1;
       for (const l of cellLamps) {
         let count = 0;
-        const r2 = l.distance * l.distance;
         for (const t of targets) {
           if (l.pos.distanceToSquared(t.pos) <= r2 && !isLightOccludedByBuildings(l.pos, t.pos, buildings)) {
             count++;
@@ -256,7 +255,6 @@ export function intersectionFirstLamps(
     for (const lamp of worldLamps) {
       if (usedCells.has(lamp.cellKey) || chosen.has(lamp.id)) continue;
       let newCount = 0;
-      const r2 = lamp.distance * lamp.distance;
       for (let i = 0; i < targets.length; i++) {
         if (!targetCovered[i] && lamp.pos.distanceToSquared(targets[i].pos) <= r2) {
           if (!isLightOccludedByBuildings(lamp.pos, targets[i].pos, buildings)) {
@@ -348,7 +346,7 @@ export function criticalPathLamps(
 
     for (const lampId of chosen) {
       const lamp = worldLamps.find((l) => l.id === lampId);
-      if (lamp && lamp.pos.distanceTo(pt) <= lamp.distance) {
+      if (lamp && lamp.pos.distanceTo(pt) <= DEFAULT_LAMP_DISTANCE) {
         if (!isLightOccludedByBuildings(lamp.pos, pt, buildings)) {
           isLit = true;
           break;
@@ -363,10 +361,10 @@ export function criticalPathLamps(
       for (const lamp of worldLamps) {
         if (usedCells.has(lamp.cellKey) || chosen.has(lamp.id)) continue;
         const d = lamp.pos.distanceTo(pt);
-        if (d <= lamp.distance && !isLightOccludedByBuildings(lamp.pos, pt, buildings)) {
+        if (d <= DEFAULT_LAMP_DISTANCE && !isLightOccludedByBuildings(lamp.pos, pt, buildings)) {
           let count = 0;
           for (let j = i; j < Math.min(i + 15, routePoints.length); j++) {
-            if (lamp.pos.distanceTo(routePoints[j]) <= lamp.distance && !isLightOccludedByBuildings(lamp.pos, routePoints[j], buildings)) {
+            if (lamp.pos.distanceTo(routePoints[j]) <= DEFAULT_LAMP_DISTANCE && !isLightOccludedByBuildings(lamp.pos, routePoints[j], buildings)) {
               count++;
             }
           }

@@ -197,9 +197,9 @@ export function extractWorldLamps(objects: CityObject[], cellSize: number): Worl
         pos: p,
         dir: localDir,
         intensity: l.intensity ?? 3.5,
-        distance: DEFAULT_LAMP_DISTANCE,
+        distance: DEFAULT_VISUAL_LIGHT_DISTANCE,
         color: l.color || "#fff8e7",
-        angle: Math.PI / 2.9,
+        angle: Math.PI / 2.6,
         penumbra: 0.65,
       });
     }
@@ -412,6 +412,7 @@ function NPCCharacter({ npc }: { npc: NPCInstance }) {
 }
 
 const RAGDOLL_LIFETIME_MS = 15000; // auto-revive so the city never ends up permanently dead
+const MAX_RAY_POINTS = 600;
 
 function NPCManager({
   attractors, count, configs, dropAllNonce, reviveAllNonce, breakAccel, breakingEnabled,
@@ -434,7 +435,9 @@ function NPCManager({
   const listRef = useRef<NPCInstance[]>([]);
   const mapRef = useRef<Map<string, PlacedAttractor>>(new Map());
   const groupRefs = useRef<(THREE.Group | null)[]>([]);
-  const debugLinesMeshRef = useRef<THREE.LineSegments>(null);
+  const debugGeoRef = useRef<THREE.BufferGeometry>(null);
+  const rayPositionsBuffer = useMemo(() => new Float32Array(MAX_RAY_POINTS * 3), []);
+  const rayColorsBuffer = useMemo(() => new Float32Array(MAX_RAY_POINTS * 3), []);
   const systemRef = useRef<RagdollSystem | null>(null);
   const breakAccelRef = useRef(breakAccel);
   const cityCollidersVersionRef = useRef(-1);
@@ -619,7 +622,7 @@ function NPCManager({
                 // 2. Physical 3D Raycast (Honest shadow test against buildings)
                 let isOccluded = false;
                 let hitDist = d;
-                if (system) {
+                if (system && system.hasBuildingColliders) {
                   const occ = system.checkLightOcclusion(lamp.pos, _npcChest);
                   isOccluded = occ.blocked;
                   if (occ.hitDist != null) hitDist = occ.hitDist;
@@ -631,10 +634,10 @@ function NPCManager({
                   rayPositions.push(lamp.pos.x, lamp.pos.y, lamp.pos.z);
                   if (isOccluded) {
                     rayPositions.push(lamp.pos.x + rayDirX * hitDist, lamp.pos.y + rayDirY * hitDist, lamp.pos.z + rayDirZ * hitDist);
-                    rayColors.push(0.95, 0.25, 0.25, 0.95, 0.25, 0.25);
+                    rayColors.push(1.0, 0.2, 0.2, 1.0, 0.2, 0.2); // Red: blocked by building
                   } else {
                     rayPositions.push(_npcChest.x, _npcChest.y, _npcChest.z);
-                    rayColors.push(0.3, 0.95, 0.35, 0.3, 0.95, 0.35);
+                    rayColors.push(0.2, 1.0, 0.3, 0.2, 1.0, 0.3); // Bright green: reaches NPC
                   }
                 }
 
@@ -643,8 +646,12 @@ function NPCManager({
                   const coneFactor = THREE.MathUtils.clamp((cosTheta - cosOuter) / (cosInner - cosOuter), 0, 1);
                   const distFactor = 1 - d / lamp.distance;
                   const intensity = lamp.intensity ?? 3.5;
-                  lampContribution += distFactor * coneFactor * (intensity / 2.0) * lampMultiplier;
+                  lampContribution += distFactor * coneFactor * (intensity / 1.5) * lampMultiplier;
                 }
+              } else if (showLightRays && d < 12) {
+                // Outside spotlight cone: show a subtle gray ray
+                rayPositions.push(lamp.pos.x, lamp.pos.y, lamp.pos.z, _npcChest.x, _npcChest.y, _npcChest.z);
+                rayColors.push(0.5, 0.5, 0.6, 0.5, 0.5, 0.6);
               }
             }
           }
@@ -740,14 +747,20 @@ function NPCManager({
       if (npc && npc.state === "alive") ragdollNpc(npc, impact.dir, Math.min(1.2, impact.speed));
     }
 
-    if (debugLinesMeshRef.current) {
+    if (debugGeoRef.current) {
       if (showLightRays && rayPositions.length > 0) {
-        debugLinesMeshRef.current.visible = true;
-        const geo = debugLinesMeshRef.current.geometry;
-        geo.setAttribute("position", new THREE.Float32BufferAttribute(rayPositions, 3));
-        geo.setAttribute("color", new THREE.Float32BufferAttribute(rayColors, 3));
+        const pointCount = Math.min(rayPositions.length / 3, MAX_RAY_POINTS);
+        const posAttr = debugGeoRef.current.attributes.position as THREE.BufferAttribute;
+        const colAttr = debugGeoRef.current.attributes.color as THREE.BufferAttribute;
+        if (posAttr && colAttr) {
+          (posAttr.array as Float32Array).set(rayPositions.slice(0, pointCount * 3));
+          (colAttr.array as Float32Array).set(rayColors.slice(0, pointCount * 3));
+          posAttr.needsUpdate = true;
+          colAttr.needsUpdate = true;
+          debugGeoRef.current.setDrawRange(0, pointCount);
+        }
       } else {
-        debugLinesMeshRef.current.visible = false;
+        debugGeoRef.current.setDrawRange(0, 0);
       }
     }
 
@@ -774,9 +787,20 @@ function NPCManager({
           {showLightLevels && <NPCLightIndicator npc={npc} />}
         </group>
       ))}
-      <lineSegments ref={debugLinesMeshRef} visible={false}>
-        <bufferGeometry />
-        <lineBasicMaterial vertexColors transparent opacity={0.65} />
+      <lineSegments visible={showLightRays}>
+        <bufferGeometry ref={debugGeoRef}>
+          <bufferAttribute
+            attach="attributes-position"
+            args={[rayPositionsBuffer, 3]}
+            usage={THREE.DynamicDrawUsage}
+          />
+          <bufferAttribute
+            attach="attributes-color"
+            args={[rayColorsBuffer, 3]}
+            usage={THREE.DynamicDrawUsage}
+          />
+        </bufferGeometry>
+        <lineBasicMaterial vertexColors depthTest={false} depthWrite={false} transparent opacity={0.85} />
       </lineSegments>
     </>
   );
@@ -827,7 +851,7 @@ function RoadLampLight({
           color={light.color || "#fff8e7"}
           intensity={intensity}
           distance={visualDistance}
-          angle={Math.PI / 2.9}
+          angle={Math.PI / 2.6}
           penumbra={0.65}
           decay={1.2}
         />
@@ -869,7 +893,7 @@ function RoadModel({
 
   useFrame(() => {
     const g = outerRef.current;
-    if (!g || colliderRegistered.current) return;
+    if (!g || colliderRegistered.current || !gltf?.scene) return;
     // Force the full subtree world matrices: R3F applies element props in commit, but
     // matrixWorld is only recomputed at render, so measure them ourselves here.
     g.updateWorldMatrix(true, true);
@@ -880,7 +904,8 @@ function RoadModel({
       colliderRegistered.current = true;
       setCityMeshCollider({ key: colliderKey, positions });
     } else {
-      const box = new THREE.Box3().setFromObject(g);
+      // Measure ONLY the road geometry, not the 5.4m tall street lamps mounted on it
+      const box = new THREE.Box3().setFromObject(gltf.scene);
       const size = box.getSize(_boxSize);
       if (size.x < 1e-4 || size.z < 1e-4) return;
       colliderRegistered.current = true;
