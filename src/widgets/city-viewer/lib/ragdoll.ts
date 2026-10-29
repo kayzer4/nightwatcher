@@ -246,7 +246,7 @@ export class RagdollSystem {
       if (!desc) continue;
       const col = this.world.createCollider(desc, this.cityBody);
       this.cityColliders.set(collider.key, col);
-      if (isMesh || collider.key.startsWith("Models-")) {
+      if (isMesh || collider.key.startsWith("Models-") || collider.key.startsWith("buildings-")) {
         this.buildingHandles.add(col.handle);
       }
     }

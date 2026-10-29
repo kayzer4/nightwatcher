@@ -215,7 +215,7 @@ function getBuildingCandidates(modelConfigs: Record<string, ModelConfig>): { mod
 
   for (const [, cfg] of Object.entries(modelConfigs)) {
     // Only accept actual buildings; exclude props (e.g. traffic-light), roads, tiles, characters
-    if (cfg.modelType !== "building" || cfg.pack !== "Models") continue;
+    if (cfg.modelType !== "building" || (cfg.pack !== "Models" && cfg.pack !== "buildings")) continue;
     if (cfg.tags.includes("detail")) continue;
     candidates.push({
       model: cfg.name,

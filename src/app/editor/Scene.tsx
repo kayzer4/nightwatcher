@@ -186,7 +186,7 @@ function PreviewModel({ url, onFit }: { url: string; onFit?: (pos: [number, numb
 }
 
 function LampMesh({ model }: { model: string }) {
-  const gltf = useUncachedGLTF(`/models/props/${model}.glb`);
+  const gltf = useUncachedGLTF(`/models/lamps/${model}.glb`);
   const sceneClone = useMemo(() => {
     if (!gltf?.scene) return null;
     return gltf.scene.clone(true);

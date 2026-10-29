@@ -150,7 +150,7 @@ export function extractWorldLamps(objects: CityObject[], cellSize: number): Worl
   const lamps: WorldLamp[] = [];
   for (const obj of objects) {
     if (!obj.lights || obj.lights.length === 0) continue;
-    const isBuilding = obj.pack === "Models";
+    const isBuilding = obj.pack === "Models" || obj.pack === "buildings";
     const fitScale = isBuilding
       ? (_buildingFitCache.get(`/models/${obj.pack}/${obj.model}.glb`) || cellSize)
       : (obj.pack === "props" ? (obj.scale || 1) : cellSize);
@@ -806,7 +806,7 @@ function NPCManager({
 }
 
 function LampMesh({ model }: { model: string }) {
-  const gltf = useUncachedGLTF(`/models/props/${model}.glb`);
+  const gltf = useUncachedGLTF(`/models/lamps/${model}.glb`);
   const sceneClone = useMemo(() => {
     if (!gltf?.scene) return null;
     return gltf.scene.clone(true);
@@ -887,7 +887,7 @@ function RoadModel({
   const gltf = useUncachedGLTF(`/models/${obj.pack}/${obj.model}.glb`);
   const outerRef = useRef<THREE.Group>(null);
   const colliderRegistered = useRef(false);
-  const isBuilding = obj.pack === "Models";
+  const isBuilding = obj.pack === "Models" || obj.pack === "buildings";
 
   useFrame(() => {
     const g = outerRef.current;
@@ -1239,7 +1239,7 @@ export function CityViewerClient() {
   }, [worldLamps, placedLampIds]);
 
   const roadCount = objects.filter((o) => o.pack === "roads").length;
-  const buildingCount = objects.filter((o) => o.pack === "Models").length;
+  const buildingCount = objects.filter((o) => o.pack === "Models" || o.pack === "buildings").length;
 
   const newCity = () => {
     const s = Math.floor(Math.random() * 100000);

@@ -7,39 +7,24 @@ export async function GET() {
 
   const packs: { name: string; models: string[] }[] = [];
 
-  // Models pack (buildings)
-  const modelsPath = path.join(modelsDir, "Models");
-  if (fs.existsSync(modelsPath)) {
+  // Ordered list of packs
+  const packOrder = ["roads", "lamps", "buildings", "Models", "props", "characters", "suburban", "industrial"];
+  const seen = new Set<string>();
+
+  for (const packName of packOrder) {
+    const packPath = path.join(modelsDir, packName);
+    if (!fs.existsSync(packPath)) continue;
+
     const models = fs
-      .readdirSync(modelsPath)
-      .filter((f) => f.endsWith(".glb") && !f.includes("low-detail") && !f.includes("detail-"))
+      .readdirSync(packPath)
+      .filter((f) => f.endsWith(".glb") && !f.includes("low-detail"))
       .map((f) => f.replace(".glb", ""))
       .sort();
-    packs.push({ name: "Models", models });
-  }
 
-  // Roads pack
-  const roadsPath = path.join(modelsDir, "roads");
-  if (fs.existsSync(roadsPath)) {
-    const roadModels = fs
-      .readdirSync(roadsPath)
-      .filter((f) => f.endsWith(".glb") && !f.includes("barrier") && !f.includes("construction"))
-      .map((f) => f.replace(".glb", ""))
-      .sort();
-    packs.push({ name: "roads", models: roadModels });
-  }
-
-
-
-  // Characters pack (NPC models)
-  const charsPath = path.join(modelsDir, "characters");
-  if (fs.existsSync(charsPath)) {
-    const models = fs
-      .readdirSync(charsPath)
-      .filter((f) => f.endsWith(".glb"))
-      .map((f) => f.replace(".glb", ""))
-      .sort();
-    packs.push({ name: "characters", models });
+    if (models.length > 0 && !seen.has(packName)) {
+      seen.add(packName);
+      packs.push({ name: packName, models });
+    }
   }
 
   return NextResponse.json(packs);

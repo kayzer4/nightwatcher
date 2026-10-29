@@ -29,6 +29,7 @@ export const AVAILABLE_LAMP_MODELS = [
   { value: "light-square-double", label: "Двойной прямой (light-square-double)" },
   { value: "light-curved-cross", label: "Крестовой изогнутый (light-curved-cross)" },
   { value: "light-square-cross", label: "Крестовой прямой (light-square-cross)" },
+  { value: "construction-light", label: "Строительный фонарь (construction-light)" },
 ];
 
 export interface ModelConfig {

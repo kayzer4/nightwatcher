@@ -118,7 +118,7 @@ export default function ModelEditorPage() {
 
   const getConfig = (): ModelConfig => {
     if (configs[configKey]) return configs[configKey];
-    const modelType = selectedPack === "Models" ? "building" : selectedPack === "characters" ? "character" : "road";
+    const modelType = (selectedPack === "Models" || selectedPack === "buildings") ? "building" : selectedPack === "characters" ? "character" : selectedPack === "lamps" || selectedPack === "props" ? "prop" : "road";
     return { name: selectedModel, pack: selectedPack, modelType, ...DEFAULT_CONFIG };
   };
 

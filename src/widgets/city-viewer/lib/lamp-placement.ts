@@ -20,7 +20,7 @@ export function extractBuildingBoxes(objects: CityObject[], cellSize: number): B
   const boxes: BuildingBox2D[] = [];
   const half = (cellSize * 0.5) - 0.3;
   for (const obj of objects) {
-    if (obj.pack === "Models") {
+    if (obj.pack === "Models" || obj.pack === "buildings") {
       boxes.push({
         minX: obj.position[0] - half,
         maxX: obj.position[0] + half,
