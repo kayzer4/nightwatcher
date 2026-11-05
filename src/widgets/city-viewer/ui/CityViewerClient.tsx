@@ -848,7 +848,7 @@ function RoadLampLight({
     return obj;
   }, []);
 
-  const intensity = (light.intensity ?? 3.5) * 0.28;
+  const intensity = (light.intensity ?? 3.5) * 3.0;
 
   return (
     <group position={bulbOffset}>
