@@ -146,7 +146,11 @@ export interface WorldLamp {
   penumbra: number;
 }
 
-export function extractWorldLamps(objects: CityObject[], cellSize: number): WorldLamp[] {
+export function extractWorldLamps(
+  objects: CityObject[],
+  cellSize: number,
+  visualDistance: number = DEFAULT_VISUAL_LIGHT_DISTANCE
+): WorldLamp[] {
   const lamps: WorldLamp[] = [];
   for (const obj of objects) {
     if (!obj.lights || obj.lights.length === 0) continue;
@@ -197,7 +201,7 @@ export function extractWorldLamps(objects: CityObject[], cellSize: number): Worl
         pos: p,
         dir: localDir,
         intensity: l.intensity ?? 3.5,
-        distance: DEFAULT_VISUAL_LIGHT_DISTANCE,
+        distance: visualDistance,
         color: l.color || "#fff8e7",
         angle: (83 * Math.PI) / 180,
         penumbra: 0.25,
@@ -360,7 +364,10 @@ function NPCCharacter({ npc }: { npc: NPCInstance }) {
     c.position.y = -box.min.y * total; // feet on the ground
     c.userData.basePosition = c.position.clone();
     c.userData.baseQuaternion = c.quaternion.clone();
-    c.traverse((o) => { o.castShadow = true; });
+    c.traverse((o) => {
+      o.castShadow = true;
+      o.receiveShadow = true;
+    });
     return c;
   }, [scene, npc.scale]);
   const mixer = useMemo(() => new THREE.AnimationMixer(clone), [clone]);
@@ -631,13 +638,15 @@ function NPCManager({
                 }
 
                 const cosInner = Math.cos(lamp.angle * (1 - lamp.penumbra));
-                const coneFactor = THREE.MathUtils.clamp((cosTheta - cosOuter) / (cosInner - cosOuter), 0, 1);
-                const distFactor = Math.max(0, 1 - d / lamp.distance);
+                // Exact Three.js spotlight smoothstep and distance cutoff attenuation (matching decay = 0)
+                const spotAttenuation = THREE.MathUtils.smoothstep(cosTheta, cosOuter, cosInner);
+                const ratio = THREE.MathUtils.clamp(d / lamp.distance, 0, 1);
+                const distFalloff = Math.pow(Math.max(0, 1 - Math.pow(ratio, 4)), 2);
+                const rawLight = spotAttenuation * distFalloff;
                 const intensity = lamp.intensity ?? 3.5;
-                const effCone = Math.pow(coneFactor, 0.45);
-                const contrib = distFactor * effCone * (intensity / 1.5) * lampMultiplier;
+                const contrib = rawLight * (intensity / 1.5) * lampMultiplier;
 
-                if (showLightRays && (contrib > 0.04 || isOccluded)) {
+                if (showLightRays && (contrib > 0.04 || (isOccluded && rawLight > 0.04))) {
                   rayPositions.push(lamp.pos.x, lamp.pos.y, lamp.pos.z);
                   if (isOccluded) {
                     rayPositions.push(lamp.pos.x + rayDirX * hitDist, lamp.pos.y + rayDirY * hitDist, lamp.pos.z + rayDirZ * hitDist);
@@ -823,12 +832,14 @@ function RoadLampLight({
   isOn,
   visualDistance = DEFAULT_VISUAL_LIGHT_DISTANCE,
   isDoubleOrCross = false,
+  canCastShadow = true,
 }: {
   light: any;
   bulbOffset: [number, number, number];
   isOn: boolean;
   visualDistance?: number;
   isDoubleOrCross?: boolean;
+  canCastShadow?: boolean;
 }) {
   const target = useMemo(() => {
     const obj = new THREE.Object3D();
@@ -837,7 +848,7 @@ function RoadLampLight({
     return obj;
   }, []);
 
-  const intensity = (light.intensity ?? 3.5) * 3.0;
+  const intensity = (light.intensity ?? 3.5) * 1.5;
 
   return (
     <group position={bulbOffset}>
@@ -851,7 +862,13 @@ function RoadLampLight({
           distance={visualDistance}
           angle={(83 * Math.PI) / 180}
           penumbra={0.25}
-          decay={1.2}
+          decay={0}
+          castShadow={canCastShadow}
+          shadow-mapSize={[512, 512]}
+          shadow-bias={-0.0005}
+          shadow-normalBias={0.02}
+          shadow-camera-near={0.5}
+          shadow-camera-far={visualDistance}
         />
       )}
       {light.showSphere && (
@@ -874,6 +891,7 @@ function RoadModel({
   cellSize,
   colliderKey,
   placedLampIds,
+  shadowLampIds,
   onToggleLamp,
   visualDistance = DEFAULT_VISUAL_LIGHT_DISTANCE,
 }: {
@@ -881,6 +899,7 @@ function RoadModel({
   cellSize: number;
   colliderKey: string;
   placedLampIds: Set<string>;
+  shadowLampIds?: Set<string>;
   onToggleLamp: (id: string) => void;
   visualDistance?: number;
 }) {
@@ -1001,6 +1020,7 @@ function RoadModel({
                 isOn={true}
                 visualDistance={visualDistance}
                 isDoubleOrCross={isDoubleOrCross}
+                canCastShadow={!shadowLampIds || shadowLampIds.has(lampId)}
               />
               {/* Click target helper */}
               <mesh position={[0, 0.35, isDoubleOrCross ? 0 : -0.07]}>
@@ -1188,8 +1208,8 @@ export function CityViewerClient() {
   });
 
   const worldLamps = useMemo(() => {
-    return extractWorldLamps(objects, DEFAULT_CONFIG.cellSize);
-  }, [objects]);
+    return extractWorldLamps(objects, DEFAULT_CONFIG.cellSize, lampVisualDistance);
+  }, [objects, lampVisualDistance]);
 
   const buildingBoxes = useMemo(() => {
     return extractBuildingBoxes(objects, DEFAULT_CONFIG.cellSize);
@@ -1198,6 +1218,12 @@ export function CityViewerClient() {
   type PlacementMode = "greedy" | "intersection" | "path" | "all" | "none" | "custom";
   const [placementMode, setPlacementMode] = useState<PlacementMode>("greedy");
   const [placedLampIds, setPlacedLampIds] = useState<Set<string>>(() => new Set());
+
+  const shadowLampIds = useMemo(() => {
+    const arr = Array.from(placedLampIds);
+    // Keep up to 14 shadow-casting lamps to ensure WebGL 2 max texture limits are never exceeded
+    return new Set(arr.slice(0, 14));
+  }, [placedLampIds]);
 
   const applyPlacement = useCallback(
     (mode: PlacementMode) => {
@@ -1636,6 +1662,7 @@ export function CityViewerClient() {
               cellSize={DEFAULT_CONFIG.cellSize}
               colliderKey={`${obj.pack}-${i}`}
               placedLampIds={placedLampIds}
+              shadowLampIds={shadowLampIds}
               onToggleLamp={toggleLampPlacement}
               visualDistance={lampVisualDistance}
             />
