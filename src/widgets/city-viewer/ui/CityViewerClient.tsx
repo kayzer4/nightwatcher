@@ -644,9 +644,9 @@ function NPCManager({
                 const distFalloff = Math.pow(Math.max(0, 1 - Math.pow(ratio, 4)), 2);
                 const rawLight = spotAttenuation * distFalloff;
                 const intensity = lamp.intensity ?? 3.5;
-                const contrib = rawLight * (intensity / 1.5) * lampMultiplier;
+                const contrib = rawLight * (intensity / 1.0) * lampMultiplier;
 
-                if (showLightRays && (contrib > 0.01 || (isOccluded && rawLight > 0.01))) {
+                if (showLightRays && (contrib > 0.005 || (isOccluded && rawLight > 0.005))) {
                   rayPositions.push(lamp.pos.x, lamp.pos.y, lamp.pos.z);
                   if (isOccluded) {
                     rayPositions.push(lamp.pos.x + rayDirX * hitDist, lamp.pos.y + rayDirY * hitDist, lamp.pos.z + rayDirZ * hitDist);
@@ -667,7 +667,7 @@ function NPCManager({
 
         const totalLevel = THREE.MathUtils.clamp(dayFactor * 0.95 + lampContribution + 0.03, 0, 1);
         npc.lightLevel = totalLevel;
-        npc.isLit = totalLevel >= 0.08;
+        npc.isLit = totalLevel >= 0.05;
         if (npc.isLit) litCount++;
         totalLightSum += totalLevel;
       }
