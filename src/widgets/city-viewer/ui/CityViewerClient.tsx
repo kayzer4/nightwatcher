@@ -646,7 +646,7 @@ function NPCManager({
                 const intensity = lamp.intensity ?? 3.5;
                 const contrib = rawLight * (intensity / 1.5) * lampMultiplier;
 
-                if (showLightRays && (contrib > 0.02 || (isOccluded && rawLight > 0.02))) {
+                if (showLightRays && (contrib > 0.01 || (isOccluded && rawLight > 0.01))) {
                   rayPositions.push(lamp.pos.x, lamp.pos.y, lamp.pos.z);
                   if (isOccluded) {
                     rayPositions.push(lamp.pos.x + rayDirX * hitDist, lamp.pos.y + rayDirY * hitDist, lamp.pos.z + rayDirZ * hitDist);
@@ -667,7 +667,7 @@ function NPCManager({
 
         const totalLevel = THREE.MathUtils.clamp(dayFactor * 0.95 + lampContribution + 0.03, 0, 1);
         npc.lightLevel = totalLevel;
-        npc.isLit = totalLevel >= 0.12;
+        npc.isLit = totalLevel >= 0.08;
         if (npc.isLit) litCount++;
         totalLightSum += totalLevel;
       }
@@ -848,7 +848,7 @@ function RoadLampLight({
     return obj;
   }, []);
 
-  const intensity = (light.intensity ?? 3.5) * 0.55;
+  const intensity = (light.intensity ?? 3.5) * 0.28;
 
   return (
     <group position={bulbOffset}>
