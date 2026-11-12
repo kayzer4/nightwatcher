@@ -284,7 +284,11 @@ export class RagdollSystem {
       ray,
       maxToi,
       true,
-      RAPIER.QueryFilterFlags.EXCLUDE_DYNAMIC
+      RAPIER.QueryFilterFlags.EXCLUDE_DYNAMIC,
+      undefined,
+      undefined,
+      undefined,
+      (collider) => this.buildingHandles.has(collider.handle)
     );
 
     if (hit) {

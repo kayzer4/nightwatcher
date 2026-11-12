@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import fs from "fs";
 import path from "path";
+import defaultConfigs from "@/shared/config/model-configs.json";
 
 const CONFIG_PATH = path.join(process.cwd(), "src", "shared", "config", "model-configs.json");
 
@@ -11,7 +12,7 @@ export async function GET() {
       return NextResponse.json(JSON.parse(data));
     }
   } catch {}
-  return NextResponse.json({ gridSizeX: 8, gridSizeZ: 8, configs: {} });
+  return NextResponse.json(defaultConfigs);
 }
 
 export async function POST(request: Request) {

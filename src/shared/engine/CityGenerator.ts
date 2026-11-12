@@ -2,6 +2,7 @@ export interface CityConfig {
   gridSizeX: number;
   gridSizeZ: number;
   cellSize: number;
+  reservedCenterCells?: number;
 }
 
 export type AttractorType = "spawn" | "walk" | "wait" | "exit" | "activity";
@@ -352,6 +353,17 @@ export class CityGenerator {
         }
       }
     }
+
+    const reserved = this.config.reservedCenterCells ?? 0;
+    if (reserved > 0) {
+      const startX = Math.floor((sizeX - reserved) / 2);
+      const startZ = Math.floor((sizeZ - reserved) / 2);
+      for (let x = startX; x < startX + reserved; x++) {
+        for (let z = startZ; z < startZ + reserved; z++) {
+          this.map[x][z] = "empty";
+        }
+      }
+    }
   }
 
   private placeObjects(sizeX: number, sizeZ: number, cellSize: number, halfX: number, halfZ: number, blocks: Block[]): void {
@@ -452,18 +464,19 @@ export class CityGenerator {
 
     const cx = gx * cellSize + cellSize / 2 - halfX;
     const cz = gz * cellSize + cellSize / 2 - halfZ;
+    const routeLimitX = halfX - cellSize / 4;
+    const routeLimitZ = halfZ - cellSize / 4;
     const cos = Math.cos(objectRotation);
     const sin = Math.sin(objectRotation);
     // explicit directions anywhere in the model → transitions are opt-in, no same-cell fallback
     const manualRouting = cfg.attractors.some((a) => a.directions !== undefined);
     const phiDeg = (objectRotation * 180) / Math.PI;
-    const hasCrossDirs = cfg.attractors.some((a) => (a.crossingDirections?.length ?? 0) > 0);
 
     for (const a of cfg.attractors) {
       const lx = a.position.x * cellSize;
       const lz = a.position.z * cellSize;
-      const wx = cx + lx * cos + lz * sin;
-      const wz = cz + (-lx * sin + lz * cos);
+      const wx = Math.max(-routeLimitX, Math.min(routeLimitX, cx + lx * cos + lz * sin));
+      const wz = Math.max(-routeLimitZ, Math.min(routeLimitZ, cz + (-lx * sin + lz * cos)));
       this.attractors.push({
         id: `${gx}_${gz}:${a.id}`,
         type: a.type,

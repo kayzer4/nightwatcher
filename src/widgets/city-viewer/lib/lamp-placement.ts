@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import type { CityObject, PlacedAttractor } from "@/shared/engine/CityGenerator";
-import type { WorldLamp } from "../ui/CityViewerClient";
+import type { WorldLamp } from "./world-lamp";
 
 export const DEFAULT_LAMP_DISTANCE = 10.5;
 
@@ -12,13 +12,12 @@ export interface BuildingBox2D {
 }
 
 /**
- * Извлекает 2D-габариты всех зданий с небольшим отступом (0.3м),
- * чтобы тротуары вдоль фасадов не блокировались ложно,
- * но сквозной свет через объем здания гарантированно пресекался.
+ * Извлекает почти полный размер ячейки здания. В сцене модель подгоняется
+ * по ширине к cellSize, поэтому большой отступ пропускал свет у фасада.
  */
 export function extractBuildingBoxes(objects: CityObject[], cellSize: number): BuildingBox2D[] {
   const boxes: BuildingBox2D[] = [];
-  const half = (cellSize * 0.5) - 0.3;
+  const half = cellSize * 0.48;
   for (const obj of objects) {
     if (obj.pack === "Models" || obj.pack === "buildings") {
       boxes.push({
@@ -78,7 +77,7 @@ export function segmentIntersectsBox2D(
 export function isLightOccludedByBuildings(
   lampPos: { x: number; z: number },
   targetPos: { x: number; z: number },
-  buildings: BuildingBox2D[]
+  buildings: readonly BuildingBox2D[]
 ): boolean {
   const minSegX = Math.min(lampPos.x, targetPos.x);
   const maxSegX = Math.max(lampPos.x, targetPos.x);
